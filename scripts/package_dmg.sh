@@ -10,13 +10,29 @@ derived_data_directory="$build_directory/ReleaseDerivedData"
 distribution_directory="$project_directory/dist"
 application_path="$derived_data_directory/Build/Products/Release/ClipboardHistory.app"
 disk_image_path="$distribution_directory/ClipboardHistory-v${release_version}.dmg"
+volume_name="ClipboardHistory"
 
 mkdir -p "$build_directory" "$distribution_directory"
 
-staging_directory="$(mktemp -d "$build_directory/dmg-staging.XXXXXX")"
+working_directory="$(mktemp -d "$build_directory/dmg-work.XXXXXX")"
+staging_directory="$working_directory/staging"
+mounted_volume_path="$working_directory/mounted-volume"
+writable_disk_image_path="$working_directory/ClipboardHistory-rw.dmg"
+is_volume_mounted=false
+
+mkdir -p \
+    "$staging_directory/.background" \
+    "$mounted_volume_path"
 
 cleanup() {
-    rm -rf "$staging_directory"
+    if [[ "$is_volume_mounted" == true ]]; then
+        if ! hdiutil detach "$mounted_volume_path" >/dev/null 2>&1; then
+            print "警告：临时 DMG 仍在使用，已保留工作目录：$working_directory" >&2
+            return
+        fi
+    fi
+
+    rm -rf "$working_directory"
 }
 
 trap cleanup EXIT
@@ -56,12 +72,56 @@ fi
 
 ln -s /Applications "$staging_directory/Applications"
 
+xcrun swift \
+    "$script_directory/make_dmg_background.swift" \
+    "$staging_directory/.background/background.png"
+
+if [[ -f "$application_path/Contents/Resources/AppIcon.icns" ]]; then
+    ditto \
+        "$application_path/Contents/Resources/AppIcon.icns" \
+        "$staging_directory/.VolumeIcon.icns"
+fi
+
+codesign --verify --deep --strict --verbose=2 \
+    "$staging_directory/ClipboardHistory.app"
+
 hdiutil create \
-    -volname ClipboardHistory \
+    -quiet \
+    -volname "$volume_name" \
     -srcfolder "$staging_directory" \
     -ov \
+    -format UDRW \
+    "$writable_disk_image_path"
+
+hdiutil attach \
+    -quiet \
+    -readwrite \
+    -noverify \
+    -noautoopen \
+    -mountpoint "$mounted_volume_path" \
+    "$writable_disk_image_path"
+is_volume_mounted=true
+
+if xcrun --find SetFile >/dev/null 2>&1; then
+    xcrun SetFile -a C "$mounted_volume_path"
+fi
+
+osascript \
+    "$script_directory/layout_dmg.applescript" \
+    "$volume_name" \
+    "$mounted_volume_path"
+sync
+
+hdiutil detach -quiet "$mounted_volume_path"
+is_volume_mounted=false
+
+hdiutil convert \
+    -quiet \
+    "$writable_disk_image_path" \
+    -ov \
     -format UDZO \
-    "$disk_image_path"
+    -imagekey zlib-level=9 \
+    -o "$disk_image_path"
 
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
     if [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
@@ -77,7 +137,6 @@ if [[ -n "${NOTARY_PROFILE:-}" ]]; then
     xcrun stapler validate "$disk_image_path"
 fi
 
-codesign --verify --deep --strict --verbose=2 \
-    "$staging_directory/ClipboardHistory.app"
+hdiutil verify "$disk_image_path"
 
 print "DMG 已生成：$disk_image_path"

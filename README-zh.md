@@ -71,7 +71,7 @@ xcodebuild \
 项目提供可重复执行的打包脚本：
 
 ```bash
-./scripts/package_dmg.sh 1.0.0
+./scripts/package_dmg.sh 1.0.1
 ```
 
 没有 Developer ID 时，脚本会创建只适合本机验证的临时签名 DMG。正式公开发布的签名和公证方法见 [docs/RELEASING.md](docs/RELEASING.md)。

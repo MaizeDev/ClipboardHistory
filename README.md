@@ -71,7 +71,7 @@ xcodebuild \
 The project includes a reusable packaging script:
 
 ```bash
-./scripts/package_dmg.sh 1.0.0
+./scripts/package_dmg.sh 1.0.1
 ```
 
 Without a Developer ID certificate, the script creates an ad-hoc signed DMG suitable only for local testing. For production signing and notarization instructions, see [docs/RELEASING.md](docs/RELEASING.md).
