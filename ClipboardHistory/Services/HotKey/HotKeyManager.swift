@@ -12,14 +12,6 @@ private let hotKeyLogger = Logger(
     category: "HotKey"
 )
 
-extension KeyboardShortcuts.Name {
-
-    static let toggleHistoryPanel = Self(
-        "toggleHistoryPanel",
-        initial: .init(.c, modifiers: [.command, .shift])
-    )
-}
-
 @MainActor
 final class HotKeyManager {
 

@@ -36,6 +36,9 @@ final class HistoryItem {
     var sourceBundleID: String
 
     var isPinned: Bool
+    var pinnedAt: Date?
+    var isFavorite: Bool = false
+    var favoritedAt: Date?
     var contentHash: String
 
     // MARK: - Initialization
@@ -44,10 +47,13 @@ final class HistoryItem {
         id: UUID = UUID(),
         contentData: Data,
         contentType: ClipboardContentType,
-        timestamp: Date = Date(),
+        timestamp: Date = .now,
         sourceAppName: String = "",
         sourceBundleID: String = "",
         isPinned: Bool = false,
+        pinnedAt: Date? = nil,
+        isFavorite: Bool = false,
+        favoritedAt: Date? = nil,
         contentHash: String? = nil
     ) {
         self.id = id
@@ -57,6 +63,9 @@ final class HistoryItem {
         self.sourceAppName = sourceAppName
         self.sourceBundleID = sourceBundleID
         self.isPinned = isPinned
+        self.pinnedAt = pinnedAt
+        self.isFavorite = isFavorite
+        self.favoritedAt = favoritedAt
         self.contentHash = contentHash
             ?? Self.generateContentHash(
                 data: contentData,

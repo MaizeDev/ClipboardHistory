@@ -26,7 +26,7 @@ final class SettingsWindowController {
         window.title = "ClipboardHistory 偏好设置"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: 680, height: 520))
+        window.setContentSize(NSSize(width: 720, height: 560))
         window.center()
         window.setFrameAutosaveName("ClipboardHistorySettingsWindow")
 

@@ -11,9 +11,13 @@ struct HistoryItemCard: View {
     let item: HistoryItem
     let isSelected: Bool
     let referenceDate: Date
-    let showsCopyActions: Bool
+    let onTogglePin: () -> Void
+    let onToggleFavorite: () -> Void
     let onCopyOriginal: () -> Void
     let onCopyPlainText: () -> Void
+
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
 
     @State
     private var fileThumbnail: NSImage?
@@ -23,7 +27,7 @@ struct HistoryItemCard: View {
             metadata
             contentPreview
 
-            if showsCopyActions {
+            if supportsTextCopy {
                 copyActions
             }
         }
@@ -47,7 +51,7 @@ struct HistoryItemCard: View {
                 )
         }
         .contentShape(RoundedRectangle(cornerRadius: 16))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private var copyActions: some View {
@@ -74,6 +78,7 @@ struct HistoryItemCard: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 22, height: 22)
+                .accessibilityHidden(true)
 
             Text(sourceApplicationName)
                 .font(.caption)
@@ -81,13 +86,6 @@ struct HistoryItemCard: View {
                 .lineLimit(1)
 
             Spacer(minLength: 8)
-
-            if item.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.caption)
-                    .foregroundStyle(.tint)
-                    .accessibilityLabel("已固定")
-            }
 
             Text(
                 HistoryRelativeTimeFormatter.string(
@@ -97,6 +95,52 @@ struct HistoryItemCard: View {
             )
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+
+            Button(
+                item.isFavorite ? "取消收藏" : "收藏",
+                systemImage: item.isFavorite ? "star.fill" : "star",
+                action: toggleFavorite
+            )
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .foregroundStyle(
+                item.isFavorite ? Color.yellow : Color.secondary
+            )
+            .help(item.isFavorite ? "取消收藏" : "长期收藏这条内容")
+
+            Button(
+                item.isPinned ? "取消固定" : "固定",
+                systemImage: item.isPinned ? "pin.fill" : "pin",
+                action: togglePin
+            )
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .foregroundStyle(
+                item.isPinned ? Color.accentColor : Color.secondary
+            )
+            .help(item.isPinned ? "取消固定" : "固定到历史顶部（最多 3 条）")
+        }
+    }
+
+    private func togglePin() {
+        guard !reduceMotion else {
+            onTogglePin()
+            return
+        }
+
+        withAnimation(.snappy(duration: 0.2)) {
+            onTogglePin()
+        }
+    }
+
+    private func toggleFavorite() {
+        guard !reduceMotion else {
+            onToggleFavorite()
+            return
+        }
+
+        withAnimation(.bouncy(duration: 0.25, extraBounce: 0.12)) {
+            onToggleFavorite()
         }
     }
 
@@ -107,7 +151,7 @@ struct HistoryItemCard: View {
             Text(item.textContent ?? "无法读取文字内容")
                 .font(.body)
                 .foregroundStyle(.primary)
-                .lineLimit(3)
+                .lineLimit(3, reservesSpace: true)
 
         case .image:
             if let image = item.imageContent {
@@ -115,7 +159,7 @@ struct HistoryItemCard: View {
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: 120)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(.rect(cornerRadius: 10))
             } else {
                 unavailablePreview("无法读取图片", systemImage: "photo")
             }
@@ -151,7 +195,7 @@ struct HistoryItemCard: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 100, maxHeight: 120)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(.rect(cornerRadius: 10))
 
             Label {
                 VStack(alignment: .leading, spacing: 3) {
@@ -180,6 +224,10 @@ struct HistoryItemCard: View {
 
     private var sourceApplicationName: String {
         item.sourceAppName.isEmpty ? "未知来源" : item.sourceAppName
+    }
+
+    private var supportsTextCopy: Bool {
+        item.type == .text || item.type == .rtf
     }
 
     private func fileIcon(for fileURL: URL) -> NSImage {

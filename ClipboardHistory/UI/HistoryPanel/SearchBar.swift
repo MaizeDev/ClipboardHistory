@@ -25,16 +25,14 @@ struct SearchBar: View {
                 .focused($isFocused)
 
             if !text.isEmpty {
-                Button {
+                Button("清除搜索", systemImage: "xmark.circle.fill") {
                     text = ""
                     isFocused = true
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
                 }
+                .labelStyle(.iconOnly)
+                .foregroundStyle(.secondary)
                 .buttonStyle(.plain)
                 .help("清除搜索")
-                .accessibilityLabel("清除搜索")
             }
         }
         .padding(.horizontal, 12)

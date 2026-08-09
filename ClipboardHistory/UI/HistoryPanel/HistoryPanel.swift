@@ -18,6 +18,7 @@ final class HistoryPanel: NSPanel {
 
     private let onDelete: (HistoryItem) -> Void
     private let onTogglePin: (HistoryItem) -> Void
+    private let onToggleFavorite: (HistoryItem) -> Void
     private let onChoose: (HistoryItem, ClipboardCopyMode) -> Bool
     private let preferences: AppPreferences
 
@@ -26,11 +27,13 @@ final class HistoryPanel: NSPanel {
         preferences: AppPreferences,
         onDelete: @escaping (HistoryItem) -> Void,
         onTogglePin: @escaping (HistoryItem) -> Void,
+        onToggleFavorite: @escaping (HistoryItem) -> Void,
         onChoose: @escaping (HistoryItem, ClipboardCopyMode) -> Bool
     ) {
         self.preferences = preferences
         self.onDelete = onDelete
         self.onTogglePin = onTogglePin
+        self.onToggleFavorite = onToggleFavorite
         self.onChoose = onChoose
 
         super.init(
@@ -58,10 +61,15 @@ final class HistoryPanel: NSPanel {
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown,
-           let fieldEditor = firstResponder as? NSTextView,
-           fieldEditor.hasMarkedText() {
-            super.sendEvent(event)
-            return
+           let fieldEditor = firstResponder as? NSTextView {
+            if fieldEditor.hasMarkedText()
+                || shouldForwardDeletionToSearchField(
+                    event,
+                    fieldEditor: fieldEditor
+                ) {
+                super.sendEvent(event)
+                return
+            }
         }
 
         guard event.type == .keyDown,
@@ -79,6 +87,16 @@ final class HistoryPanel: NSPanel {
         }
 
         viewState.send(command)
+    }
+
+    private func shouldForwardDeletionToSearchField(
+        _ event: NSEvent,
+        fieldEditor: NSTextView
+    ) -> Bool {
+        let deleteKeyCodes: Set<UInt16> = [51, 117]
+
+        return deleteKeyCodes.contains(event.keyCode)
+            && !fieldEditor.string.isEmpty
     }
 
     func show() {
@@ -129,6 +147,7 @@ final class HistoryPanel: NSPanel {
             preferences: preferences,
             onDelete: onDelete,
             onTogglePin: onTogglePin,
+            onToggleFavorite: onToggleFavorite,
             onChoose: onChoose,
             onClose: { [weak self] in
                 self?.hide()
@@ -164,7 +183,9 @@ final class HistoryPanel: NSPanel {
     }
 
     private func requestSearchFocus() {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
+            await Task.yield()
+
             guard let self, self.isVisible else {
                 return
             }

@@ -58,6 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onTogglePin: { [weak manager] item in
                 manager?.togglePinned(for: item)
             },
+            onToggleFavorite: { [weak manager] item in
+                manager?.toggleFavorite(for: item)
+            },
             onChoose: { [weak monitor] item, mode in
                 guard pasteService.copy(item: item, mode: mode) else {
                     return false

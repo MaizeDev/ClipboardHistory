@@ -22,7 +22,9 @@ If a release is marked as an "unnotarized test build," macOS may show a security
 - Enter a keyword to search content, filenames, or source applications.
 - Finder images, videos, and common documents use Quick Look thumbnails when available.
 - Click a card to select it, or double-click it to copy the item using the default mode and close the panel.
-- Select or hover over a text card to choose **Keep Formatting** or **Plain Text** directly.
+- Text cards always show **Keep Formatting** and **Plain Text**, so the layout stays stable while using the mouse.
+- Use the pin on each card for short-term priority, or the star for long-term favorites.
+- Switch between **History** and **Favorites** inside the panel.
 
 | Key | Action |
 | --- | --- |
@@ -32,9 +34,10 @@ If a release is marked as an "unnotarized test build," macOS may show a security
 | `⌘1`–`⌘9` | Select one of the first nine items |
 | `Delete` / `Backspace` | Delete the selected item |
 | `⌘P` | Pin or unpin the selected item |
+| `⇧⌘F` | Favorite or unfavorite the selected item |
 | `Esc` | Close the panel |
 
-Click the menu bar icon and choose **偏好设置…** (Preferences) to change the global shortcut, default text copy mode, history limit, launch-at-login behavior, and privacy rules.
+Click the menu bar icon and choose **偏好设置…** (Preferences) to view all shortcuts and customize the panel, pin, favorite, and alternative-copy shortcuts. You can also change the default text copy mode, history limit, launch-at-login behavior, and privacy rules.
 
 ## Privacy
 
@@ -42,6 +45,7 @@ Click the menu bar icon and choose **偏好设置…** (Preferences) to change t
 - The app has no accounts, cloud sync, analytics SDKs, or network upload features.
 - Clipboard contents marked confidential, transient, or auto-generated are skipped automatically.
 - You can clear all history or ignore specific apps in Preferences.
+- Pinned and favorite items are excluded from automatic cleanup, but can still be deleted manually.
 
 See [PRIVACY.md](PRIVACY.md) for complete details.
 
@@ -71,7 +75,7 @@ xcodebuild \
 The project includes a reusable packaging script:
 
 ```bash
-./scripts/package_dmg.sh 1.0.1
+./scripts/package_dmg.sh 1.1.0
 ```
 
 Without a Developer ID certificate, the script creates an ad-hoc signed DMG suitable only for local testing. For production signing and notarization instructions, see [docs/RELEASING.md](docs/RELEASING.md).

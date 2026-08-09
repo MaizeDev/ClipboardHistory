@@ -4,7 +4,6 @@
 //
 
 import AppKit
-import KeyboardShortcuts
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -24,17 +23,19 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            generalSettings
-                .tabItem {
-                    Label("通用", systemImage: "gearshape")
-                }
+            Tab("通用", systemImage: "gearshape") {
+                generalSettings
+            }
 
-            privacySettings
-                .tabItem {
-                    Label("隐私", systemImage: "hand.raised")
-                }
+            Tab("快捷键", systemImage: "keyboard") {
+                ShortcutSettingsView()
+            }
+
+            Tab("隐私", systemImage: "hand.raised") {
+                privacySettings
+            }
         }
-        .frame(width: 680, height: 520)
+        .frame(width: 720, height: 560)
         .alert(
             "清空全部剪贴板历史？",
             isPresented: $isShowingClearConfirmation
@@ -78,13 +79,6 @@ struct SettingsView: View {
     private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsSectionCard(title: "操作") {
-                KeyboardShortcuts.Recorder(
-                    "打开剪贴板历史：",
-                    name: .toggleHistoryPanel
-                )
-
-                Divider()
-
                 HStack {
                     Text("按 Enter 时")
                     Spacer()
@@ -265,11 +259,10 @@ struct SettingsView: View {
 
             Spacer()
 
-            Button {
+            Button("不再忽略这个应用", systemImage: "minus.circle") {
                 preferences.removeIgnoredApplication(application)
-            } label: {
-                Image(systemName: "minus.circle")
             }
+            .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .help("不再忽略这个应用")
         }
@@ -309,36 +302,5 @@ struct SettingsView: View {
                 path: applicationURL.path
             )
         )
-    }
-}
-
-private struct SettingsSectionCard<Content: View>: View {
-
-    let title: String
-    let content: Content
-
-    init(
-        title: String,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 10) {
-                content
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.quaternary.opacity(0.65))
-            )
-        }
     }
 }

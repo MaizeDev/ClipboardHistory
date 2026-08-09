@@ -44,15 +44,30 @@ struct HistoryPanelContentView: View {
     let preferences: AppPreferences
     let onDelete: (HistoryItem) -> Void
     let onTogglePin: (HistoryItem) -> Void
+    let onToggleFavorite: (HistoryItem) -> Void
     let onChoose: (HistoryItem, ClipboardCopyMode) -> Bool
     let onClose: () -> Void
 
     @State
     private var searchText = ""
 
+    @State
+    private var selectedSection = HistoryPanelSection.history
+
     var body: some View {
         VStack(spacing: 0) {
             header
+
+            Picker("显示内容", selection: $selectedSection) {
+                ForEach(HistoryPanelSection.allCases) { section in
+                    Label(section.title, systemImage: section.systemImage)
+                        .tag(section)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
 
             SearchBar(
                 text: $searchText,
@@ -66,10 +81,12 @@ struct HistoryPanelContentView: View {
 
             HistoryListView(
                 searchText: searchText,
+                section: selectedSection,
                 commandRequest: viewState.commandRequest,
                 defaultCopyMode: preferences.defaultCopyMode,
                 onDelete: onDelete,
                 onTogglePin: onTogglePin,
+                onToggleFavorite: onToggleFavorite,
                 onChoose: onChoose,
                 onClose: onClose
             )
@@ -79,7 +96,7 @@ struct HistoryPanelContentView: View {
             height: HistoryPanelLayout.height
         )
         .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .clipShape(.rect(cornerRadius: 24))
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(.primary.opacity(0.10), lineWidth: 1)
@@ -88,15 +105,13 @@ struct HistoryPanelContentView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-                    .background(.primary.opacity(0.08), in: Circle())
-            }
+            Button("关闭剪贴板历史", systemImage: "xmark", action: onClose)
+                .labelStyle(.iconOnly)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .background(.primary.opacity(0.08), in: Circle())
             .buttonStyle(.plain)
-            .accessibilityLabel("关闭剪贴板历史")
 
             Text("剪贴板历史")
                 .font(.title3.weight(.semibold))
@@ -115,6 +130,7 @@ struct HistoryPanelContentView: View {
         preferences: AppPreferences(),
         onDelete: { _ in },
         onTogglePin: { _ in },
+        onToggleFavorite: { _ in },
         onChoose: { _, _ in true },
         onClose: {}
     )

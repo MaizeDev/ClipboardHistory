@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import KeyboardShortcuts
 
 enum HistoryPanelCommand: Equatable {
     case moveSelection(Int)
@@ -12,6 +13,7 @@ enum HistoryPanelCommand: Equatable {
     case selectItem(at: Int)
     case deleteSelection
     case togglePin
+    case toggleFavorite
     case dismiss
 
     var allowsKeyRepeat: Bool {
@@ -38,13 +40,33 @@ enum HistoryPanelKeyboard {
     ) -> HistoryPanelCommand? {
         let modifiers = normalizedModifiers(modifierFlags)
 
+        if matches(
+            .togglePinnedItem,
+            keyCode: keyCode,
+            modifiers: modifiers
+        ) {
+            return .togglePin
+        }
+
+        if matches(
+            .toggleFavoriteItem,
+            keyCode: keyCode,
+            modifiers: modifiers
+        ) {
+            return .toggleFavorite
+        }
+
+        if matches(
+            .chooseAlternativeCopyMode,
+            keyCode: keyCode,
+            modifiers: modifiers
+        ) {
+            return .chooseSelectionAlternative
+        }
+
         if modifiers == [.command] {
             if deleteKeyCodes.contains(keyCode) {
                 return .deleteSelection
-            }
-
-            if charactersIgnoringModifiers?.lowercased() == "p" {
-                return .togglePin
             }
 
             if let character = charactersIgnoringModifiers,
@@ -54,10 +76,6 @@ enum HistoryPanelKeyboard {
             }
 
             return nil
-        }
-
-        if modifiers == [.option], returnKeyCodes.contains(keyCode) {
-            return .chooseSelectionAlternative
         }
 
         guard modifiers.isEmpty else {
@@ -91,5 +109,18 @@ enum HistoryPanelKeyboard {
         modifiers
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.capsLock, .numericPad, .function])
+    }
+
+    private static func matches(
+        _ name: KeyboardShortcuts.Name,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard let shortcut = KeyboardShortcuts.getShortcut(for: name) else {
+            return false
+        }
+
+        return shortcut.carbonKeyCode == Int(keyCode)
+            && normalizedModifiers(shortcut.modifiers) == modifiers
     }
 }

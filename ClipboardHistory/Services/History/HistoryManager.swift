@@ -18,6 +18,8 @@ private let historyLogger = Logger(
 @MainActor
 final class HistoryManager {
 
+    static let maximumPinnedItemCount = 3
+
     enum AddResult {
         case inserted(HistoryItem)
         case updatedExisting(HistoryItem)
@@ -37,6 +39,7 @@ final class HistoryManager {
     ) {
         self.modelContext = modelContainer.mainContext
         self.maximumUnpinnedItemCount = maximumUnpinnedItemCount
+        normalizePinnedItems()
     }
 
     // MARK: - Add
@@ -178,7 +181,14 @@ final class HistoryManager {
         for item: HistoryItem
     ) {
         do {
+            if isPinned && !item.isPinned {
+                try trimPinnedItems(
+                    keeping: Self.maximumPinnedItemCount - 1
+                )
+            }
+
             item.isPinned = isPinned
+            item.pinnedAt = isPinned ? .now : nil
             try modelContext.save()
         } catch {
             historyLogger.error(
@@ -189,6 +199,27 @@ final class HistoryManager {
 
     func togglePinned(for item: HistoryItem) {
         setPinned(!item.isPinned, for: item)
+    }
+
+    // MARK: - Favorite
+
+    func setFavorite(
+        _ isFavorite: Bool,
+        for item: HistoryItem
+    ) {
+        do {
+            item.isFavorite = isFavorite
+            item.favoritedAt = isFavorite ? .now : nil
+            try modelContext.save()
+        } catch {
+            historyLogger.error(
+                "修改收藏状态失败：\(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    func toggleFavorite(for item: HistoryItem) {
+        setFavorite(!item.isFavorite, for: item)
     }
 
     // MARK: - Cleanup
@@ -202,7 +233,7 @@ final class HistoryManager {
 
         let descriptor = FetchDescriptor<HistoryItem>(
             predicate: #Predicate<HistoryItem> { item in
-                item.isPinned == false
+                item.isPinned == false && item.isFavorite == false
             },
             sortBy: [
                 SortDescriptor(
@@ -233,5 +264,47 @@ final class HistoryManager {
                 "自动清理历史失败：\(error.localizedDescription, privacy: .public)"
             )
         }
+    }
+
+    private func normalizePinnedItems() {
+        do {
+            let didChange = try trimPinnedItems(
+                keeping: Self.maximumPinnedItemCount
+            )
+
+            if didChange {
+                try modelContext.save()
+            }
+        } catch {
+            historyLogger.error(
+                "整理固定记录失败：\(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    @discardableResult
+    private func trimPinnedItems(keeping maximumCount: Int) throws -> Bool {
+        let pinnedItems = try modelContext.fetch(
+            FetchDescriptor<HistoryItem>(
+                predicate: #Predicate<HistoryItem> { item in
+                    item.isPinned == true
+                }
+            )
+        )
+        .sorted {
+            ($0.pinnedAt ?? $0.timestamp) <
+                ($1.pinnedAt ?? $1.timestamp)
+        }
+
+        let itemsToUnpin = pinnedItems.prefix(
+            max(0, pinnedItems.count - maximumCount)
+        )
+
+        for pinnedItem in itemsToUnpin {
+            pinnedItem.isPinned = false
+            pinnedItem.pinnedAt = nil
+        }
+
+        return !itemsToUnpin.isEmpty
     }
 }

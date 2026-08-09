@@ -17,38 +17,41 @@ struct HistoryListView: View {
     @State
     private var selectedItemID: UUID?
 
-    @State
-    private var hoveredItemID: UUID?
-
     let searchText: String
+    let section: HistoryPanelSection
     let commandRequest: HistoryPanelCommandRequest?
     let defaultCopyMode: ClipboardCopyMode
     let onDelete: (HistoryItem) -> Void
     let onTogglePin: (HistoryItem) -> Void
+    let onToggleFavorite: (HistoryItem) -> Void
     let onChoose: (HistoryItem, ClipboardCopyMode) -> Bool
     let onClose: () -> Void
 
     init(
         searchText: String,
+        section: HistoryPanelSection,
         commandRequest: HistoryPanelCommandRequest?,
         defaultCopyMode: ClipboardCopyMode,
         onDelete: @escaping (HistoryItem) -> Void,
         onTogglePin: @escaping (HistoryItem) -> Void,
+        onToggleFavorite: @escaping (HistoryItem) -> Void,
         onChoose: @escaping (HistoryItem, ClipboardCopyMode) -> Bool,
         onClose: @escaping () -> Void
     ) {
         self.searchText = searchText
+        self.section = section
         self.commandRequest = commandRequest
         self.defaultCopyMode = defaultCopyMode
         self.onDelete = onDelete
         self.onTogglePin = onTogglePin
+        self.onToggleFavorite = onToggleFavorite
         self.onChoose = onChoose
         self.onClose = onClose
     }
 
     var body: some View {
         Group {
-            if items.isEmpty {
+            if scopedItems.isEmpty {
                 noHistoryState
             } else if filteredItems.isEmpty {
                 noSearchResultsState
@@ -82,7 +85,12 @@ struct HistoryListView: View {
                                 item: item,
                                 isSelected: selectedItemID == item.id,
                                 referenceDate: context.date,
-                                showsCopyActions: shouldShowCopyActions(for: item),
+                                onTogglePin: {
+                                    onTogglePin(item)
+                                },
+                                onToggleFavorite: {
+                                    onToggleFavorite(item)
+                                },
                                 onCopyOriginal: {
                                     choose(item, mode: .original)
                                 },
@@ -100,13 +108,6 @@ struct HistoryListView: View {
                                         choose(item, mode: defaultCopyMode)
                                     }
                             )
-                            .onHover { isHovering in
-                                if isHovering {
-                                    hoveredItemID = item.id
-                                } else if hoveredItemID == item.id {
-                                    hoveredItemID = nil
-                                }
-                            }
                             .accessibilityAddTraits(.isButton)
                             .accessibilityAddTraits(
                                 selectedItemID == item.id ? .isSelected : []
@@ -136,17 +137,31 @@ struct HistoryListView: View {
     }
 
     private var filteredItems: [HistoryItem] {
-        items
+        scopedItems
             .filter { item in
                 HistorySearch.matches(item, query: searchText)
             }
             .sorted { lhs, rhs in
+                if section == .favorites {
+                    return (lhs.favoritedAt ?? lhs.timestamp) >
+                        (rhs.favoritedAt ?? rhs.timestamp)
+                }
+
                 if lhs.isPinned != rhs.isPinned {
                     return lhs.isPinned
                 }
 
                 return lhs.timestamp > rhs.timestamp
             }
+    }
+
+    private var scopedItems: [HistoryItem] {
+        switch section {
+        case .history:
+            items
+        case .favorites:
+            items.filter(\.isFavorite)
+        }
     }
 
     private var filteredItemIDs: [UUID] {
@@ -221,6 +236,13 @@ struct HistoryListView: View {
 
             onTogglePin(selectedItem)
 
+        case .toggleFavorite:
+            guard let selectedItem else {
+                return
+            }
+
+            onToggleFavorite(selectedItem)
+
         case .dismiss:
             onClose()
         }
@@ -234,14 +256,6 @@ struct HistoryListView: View {
         onClose()
     }
 
-    private func shouldShowCopyActions(for item: HistoryItem) -> Bool {
-        guard item.type == .text || item.type == .rtf else {
-            return false
-        }
-
-        return selectedItemID == item.id || hoveredItemID == item.id
-    }
-
     private func alternativeMode(for item: HistoryItem) -> ClipboardCopyMode {
         guard item.type == .text || item.type == .rtf else {
             return .original
@@ -252,9 +266,27 @@ struct HistoryListView: View {
 
     private var noHistoryState: some View {
         ContentUnavailableView {
-            Label("还没有剪贴板记录", systemImage: "doc.on.clipboard")
+            Label(emptyStateTitle, systemImage: section.systemImage)
         } description: {
-            Text("复制过的内容会以卡片显示在这里")
+            Text(emptyStateDescription)
+        }
+    }
+
+    private var emptyStateTitle: String {
+        switch section {
+        case .history:
+            "还没有剪贴板记录"
+        case .favorites:
+            "还没有收藏"
+        }
+    }
+
+    private var emptyStateDescription: String {
+        switch section {
+        case .history:
+            "复制过的内容会以卡片显示在这里"
+        case .favorites:
+            "点击卡片上的星标，把重要内容长期保存在这里"
         }
     }
 
