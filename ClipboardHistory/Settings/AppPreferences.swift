@@ -25,10 +25,20 @@ final class AppPreferences {
     private enum Key {
         static let maximumHistoryCount = "maximumHistoryCount"
         static let ignoredApplications = "ignoredApplications"
-        static let ignoredContentTypes = "ignoredContentTypes"
+        static let defaultCopyMode = "defaultCopyMode"
     }
 
     private static let defaultHistoryCount = 1_000
+
+    var defaultCopyMode: ClipboardCopyMode {
+        didSet {
+            guard oldValue != defaultCopyMode else {
+                return
+            }
+
+            defaults.set(defaultCopyMode.rawValue, forKey: Key.defaultCopyMode)
+        }
+    }
 
     var maximumHistoryCount: Int {
         didSet {
@@ -47,15 +57,6 @@ final class AppPreferences {
         }
     }
 
-    private(set) var ignoredContentTypes: Set<ClipboardContentType> {
-        didSet {
-            defaults.set(
-                ignoredContentTypes.map(\.rawValue).sorted(),
-                forKey: Key.ignoredContentTypes
-            )
-        }
-    }
-
     @ObservationIgnored
     var onMaximumHistoryCountChange: (() -> Void)?
 
@@ -64,6 +65,10 @@ final class AppPreferences {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+
+        defaultCopyMode = ClipboardCopyMode(
+            rawValue: defaults.string(forKey: Key.defaultCopyMode) ?? ""
+        ) ?? .original
 
         let storedHistoryCount = defaults.integer(
             forKey: Key.maximumHistoryCount
@@ -82,12 +87,6 @@ final class AppPreferences {
             ignoredApplications = []
         }
 
-        let storedTypes = defaults.stringArray(
-            forKey: Key.ignoredContentTypes
-        ) ?? []
-        ignoredContentTypes = Set(
-            storedTypes.compactMap(ClipboardContentType.init(rawValue:))
-        )
     }
 
     func addIgnoredApplication(_ application: IgnoredApplication) {
@@ -109,29 +108,10 @@ final class AppPreferences {
         }
     }
 
-    func isIgnoring(_ type: ClipboardContentType) -> Bool {
-        ignoredContentTypes.contains(type)
-    }
-
-    func setIgnoring(
-        _ shouldIgnore: Bool,
-        type: ClipboardContentType
-    ) {
-        if shouldIgnore {
-            ignoredContentTypes.insert(type)
-        } else {
-            ignoredContentTypes.remove(type)
+    func shouldIgnore(sourceBundleID: String) -> Bool {
+        ignoredApplications.contains { application in
+            application.bundleIdentifier == sourceBundleID
         }
-    }
-
-    func shouldIgnore(
-        sourceBundleID: String,
-        contentType: ClipboardContentType
-    ) -> Bool {
-        ignoredContentTypes.contains(contentType)
-            || ignoredApplications.contains { application in
-                application.bundleIdentifier == sourceBundleID
-            }
     }
 
     private func saveIgnoredApplications() {

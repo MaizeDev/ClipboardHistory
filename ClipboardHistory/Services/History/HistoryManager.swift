@@ -7,7 +7,13 @@
 
 
 import Foundation
+import OSLog
 import SwiftData
+
+private let historyLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "ClipboardHistory",
+    category: "History"
+)
 
 @MainActor
 final class HistoryManager {
@@ -66,7 +72,9 @@ final class HistoryManager {
 
             return .inserted(item)
         } catch {
-            print("HistoryManager 添加记录失败：\(error)")
+            historyLogger.error(
+                "添加剪贴板记录失败：\(error.localizedDescription, privacy: .public)"
+            )
             return .failed
         }
     }
@@ -88,7 +96,9 @@ final class HistoryManager {
         do {
             return try modelContext.fetch(descriptor)
         } catch {
-            print("HistoryManager 获取全部记录失败：\(error)")
+            historyLogger.error(
+                "读取剪贴板历史失败：\(error.localizedDescription, privacy: .public)"
+            )
             return []
         }
     }
@@ -109,7 +119,9 @@ final class HistoryManager {
         do {
             return try modelContext.fetch(descriptor)
         } catch {
-            print("HistoryManager 获取固定记录失败：\(error)")
+            historyLogger.error(
+                "读取固定记录失败：\(error.localizedDescription, privacy: .public)"
+            )
             return []
         }
     }
@@ -135,7 +147,9 @@ final class HistoryManager {
             modelContext.delete(item)
             try modelContext.save()
         } catch {
-            print("HistoryManager 删除记录失败：\(error)")
+            historyLogger.error(
+                "删除剪贴板记录失败：\(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -151,7 +165,9 @@ final class HistoryManager {
 
             try modelContext.save()
         } catch {
-            print("HistoryManager 清空记录失败：\(error)")
+            historyLogger.error(
+                "清空剪贴板历史失败：\(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -165,7 +181,9 @@ final class HistoryManager {
             item.isPinned = isPinned
             try modelContext.save()
         } catch {
-            print("HistoryManager 修改固定状态失败：\(error)")
+            historyLogger.error(
+                "修改固定状态失败：\(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -174,58 +192,6 @@ final class HistoryManager {
     }
 
     // MARK: - Cleanup
-
-    func debugPrintAll(limit: Int = 20) {
-        let items = fetchAll()
-
-        print("========== 剪贴板历史 ==========")
-        print("总记录数：\(items.count)")
-
-        guard !items.isEmpty else {
-            print("当前没有历史记录")
-            print("===============================")
-            return
-        }
-
-        for (index, item) in items.prefix(limit).enumerated() {
-            let preview: String
-
-            switch item.type {
-            case .text, .rtf:
-                preview = item.textContent?
-                    .replacingOccurrences(of: "\n", with: " ")
-                    .prefix(60)
-                    .description ?? "无法解析文本"
-
-            case .image:
-                preview = "图片，\(item.contentData.count) bytes"
-
-            case .fileURL:
-                preview = item.fileURL?.lastPathComponent ?? "无法解析文件"
-
-            case .unknown:
-                preview = "未知内容，\(item.contentData.count) bytes"
-            }
-
-            print(
-                """
-                [\(index + 1)]
-                类型：\(item.type.rawValue)
-                内容：\(preview)
-                来源：\(item.sourceAppName)
-                时间：\(item.timestamp)
-                固定：\(item.isPinned)
-                Hash：\(item.contentHash)
-                """
-            )
-        }
-
-        if items.count > limit {
-            print("仅显示前 \(limit) 条记录")
-        }
-
-        print("===============================")
-    }
 
     func cleanupIfNeeded() {
         let itemLimit = maximumUnpinnedItemCount()
@@ -262,10 +228,10 @@ final class HistoryManager {
             }
 
             try modelContext.save()
-
-            print("HistoryManager 已清理 \(excessItems.count) 条旧记录")
         } catch {
-            print("HistoryManager 自动清理失败：\(error)")
+            historyLogger.error(
+                "自动清理历史失败：\(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 }

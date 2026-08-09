@@ -5,6 +5,12 @@
 
 import AppKit
 import KeyboardShortcuts
+import OSLog
+
+private let hotKeyLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "ClipboardHistory",
+    category: "HotKey"
+)
 
 extension KeyboardShortcuts.Name {
 
@@ -40,8 +46,8 @@ final class HotKeyManager {
             )
 
             if !KeyboardShortcuts.isEnabled(for: .toggleHistoryPanel) {
-                print(
-                    "全局快捷键 ⇧⌘C 注册失败，可能已被其他 App 占用"
+                hotKeyLogger.warning(
+                    "全局快捷键未启用，可能与其他 App 的快捷键冲突"
                 )
             }
 

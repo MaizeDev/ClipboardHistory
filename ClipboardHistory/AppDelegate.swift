@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardMonitor: ClipboardMonitor?
     private var historyPanel: HistoryPanel?
     private var hotKeyManager: HotKeyManager?
+    private var settingsWindowController: SettingsWindowController?
 
     func applicationDidFinishLaunching(
         _ notification: Notification
@@ -34,48 +35,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let monitor = ClipboardMonitor(
-            shouldIgnoreCapture: { [weak self] sourceBundleID, contentType in
-                self?.preferences.shouldIgnore(
-                    sourceBundleID: sourceBundleID,
-                    contentType: contentType
-                ) ?? false
+            shouldIgnoreSourceApplication: { [weak self] sourceBundleID in
+                self?.preferences.shouldIgnore(sourceBundleID: sourceBundleID)
+                    ?? false
             }
         )
         let pasteService = PasteService()
 
         monitor.onCapture = { [weak manager] capture in
-            guard let manager else {
-                return
-            }
-
-            switch manager.add(capture: capture) {
-            case .inserted:
-                #if DEBUG
-                print(
-                    """
-                    已新增剪贴板记录：
-                    类型：\(capture.contentType.rawValue)
-                    来源：\(capture.sourceAppName)
-                    Hash：\(capture.contentHash)
-                    """
-                )
-                #endif
-
-            case .updatedExisting:
-                #if DEBUG
-                print(
-                    """
-                    已更新重复记录：
-                    类型：\(capture.contentType.rawValue)
-                    来源：\(capture.sourceAppName)
-                    Hash：\(capture.contentHash)
-                    """
-                )
-                #endif
-
-            case .failed:
-                print("剪贴板记录保存失败")
-            }
+            manager?.add(capture: capture)
         }
 
         historyManager = manager
@@ -83,14 +51,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let panel = HistoryPanel(
             modelContainer: ClipboardHistoryApp.modelContainer,
+            preferences: preferences,
             onDelete: { [weak manager] item in
                 manager?.delete(item: item)
             },
             onTogglePin: { [weak manager] item in
                 manager?.togglePinned(for: item)
             },
-            onChoose: { [weak monitor] item in
-                guard pasteService.copy(item: item) else {
+            onChoose: { [weak monitor] item, mode in
+                guard pasteService.copy(item: item, mode: mode) else {
                     return false
                 }
 
@@ -105,23 +74,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
 
+        let settingsController = SettingsWindowController(
+            preferences: preferences,
+            onClearHistory: { [weak manager] in
+                manager?.deleteAll()
+            }
+        )
+        settingsWindowController = settingsController
+
         statusBarController = StatusBarController(
             onTogglePanel: { [weak panel] in
                 panel?.toggle()
             },
-            onPrintHistory: { [weak manager] in
-                manager?.debugPrintAll()
+            onOpenSettings: { [weak settingsController] in
+                settingsController?.show()
             }
         )
 
         monitor.start()
-
-        #if DEBUG
-        print("ClipboardHistory 已启动")
-        print("HistoryManager 已初始化")
-        print("菜单栏状态项已创建")
-        print("核心服务集成完成")
-        #endif
     }
 
     func applicationWillTerminate(
@@ -134,12 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyPanel = nil
         hotKeyManager?.stop()
         hotKeyManager = nil
+        settingsWindowController?.close()
+        settingsWindowController = nil
         historyManager = nil
         statusBarController = nil
 
-        #if DEBUG
-        print("ClipboardHistory 即将退出")
-        #endif
     }
 
     func clearHistory() {

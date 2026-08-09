@@ -8,6 +8,7 @@ import AppKit
 enum HistoryPanelCommand: Equatable {
     case moveSelection(Int)
     case chooseSelection
+    case chooseSelectionAlternative
     case selectItem(at: Int)
     case deleteSelection
     case togglePin
@@ -53,6 +54,10 @@ enum HistoryPanelKeyboard {
             }
 
             return nil
+        }
+
+        if modifiers == [.option], returnKeyCodes.contains(keyCode) {
+            return .chooseSelectionAlternative
         }
 
         guard modifiers.isEmpty else {

@@ -17,23 +17,29 @@ struct HistoryListView: View {
     @State
     private var selectedItemID: UUID?
 
+    @State
+    private var hoveredItemID: UUID?
+
     let searchText: String
     let commandRequest: HistoryPanelCommandRequest?
+    let defaultCopyMode: ClipboardCopyMode
     let onDelete: (HistoryItem) -> Void
     let onTogglePin: (HistoryItem) -> Void
-    let onChoose: (HistoryItem) -> Bool
+    let onChoose: (HistoryItem, ClipboardCopyMode) -> Bool
     let onClose: () -> Void
 
     init(
         searchText: String,
         commandRequest: HistoryPanelCommandRequest?,
+        defaultCopyMode: ClipboardCopyMode,
         onDelete: @escaping (HistoryItem) -> Void,
         onTogglePin: @escaping (HistoryItem) -> Void,
-        onChoose: @escaping (HistoryItem) -> Bool,
+        onChoose: @escaping (HistoryItem, ClipboardCopyMode) -> Bool,
         onClose: @escaping () -> Void
     ) {
         self.searchText = searchText
         self.commandRequest = commandRequest
+        self.defaultCopyMode = defaultCopyMode
         self.onDelete = onDelete
         self.onTogglePin = onTogglePin
         self.onChoose = onChoose
@@ -67,48 +73,64 @@ struct HistoryListView: View {
     }
 
     private var historyCards: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(filteredItems) { item in
-                        Button {
-                            selectedItemID = item.id
-                        } label: {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(filteredItems) { item in
                             HistoryItemCard(
                                 item: item,
-                                isSelected: selectedItemID == item.id
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .simultaneousGesture(
-                            TapGesture(count: 2)
-                                .onEnded {
-                                    selectedItemID = item.id
-                                    choose(item)
+                                isSelected: selectedItemID == item.id,
+                                referenceDate: context.date,
+                                showsCopyActions: shouldShowCopyActions(for: item),
+                                onCopyOriginal: {
+                                    choose(item, mode: .original)
+                                },
+                                onCopyPlainText: {
+                                    choose(item, mode: .plainText)
                                 }
-                        )
-                        .accessibilityAddTraits(
-                            selectedItemID == item.id ? .isSelected : []
-                        )
-                        .id(item.id)
+                            )
+                            .onTapGesture {
+                                selectedItemID = item.id
+                            }
+                            .simultaneousGesture(
+                                TapGesture(count: 2)
+                                    .onEnded {
+                                        selectedItemID = item.id
+                                        choose(item, mode: defaultCopyMode)
+                                    }
+                            )
+                            .onHover { isHovering in
+                                if isHovering {
+                                    hoveredItemID = item.id
+                                } else if hoveredItemID == item.id {
+                                    hoveredItemID = nil
+                                }
+                            }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAddTraits(
+                                selectedItemID == item.id ? .isSelected : []
+                            )
+                            .id(item.id)
+                        }
                     }
+                    .padding(16)
                 }
-                .padding(16)
-            }
-            .scrollIndicators(.visible)
-            .onChange(of: selectedItemID) {
-                guard let selectedItemID else {
-                    return
-                }
+                .scrollIndicators(.visible)
+                .onChange(of: selectedItemID) {
+                    guard let selectedItemID else {
+                        return
+                    }
 
-                proxy.scrollTo(selectedItemID, anchor: .center)
-            }
-            .onChange(of: filteredItemIDs) {
-                guard let selectedItemID else {
-                    return
+                    proxy.scrollTo(selectedItemID, anchor: .center)
                 }
+                .onChange(of: filteredItemIDs) {
+                    guard let selectedItemID else {
+                        return
+                    }
 
-                proxy.scrollTo(selectedItemID, anchor: .center)
+                    proxy.scrollTo(selectedItemID, anchor: .center)
+                }
             }
         }
     }
@@ -162,7 +184,14 @@ struct HistoryListView: View {
                 return
             }
 
-            choose(selectedItem)
+            choose(selectedItem, mode: defaultCopyMode)
+
+        case .chooseSelectionAlternative:
+            guard let selectedItem else {
+                return
+            }
+
+            choose(selectedItem, mode: alternativeMode(for: selectedItem))
 
         case .selectItem(let index):
             guard let itemID = HistorySelection.item(
@@ -197,12 +226,28 @@ struct HistoryListView: View {
         }
     }
 
-    private func choose(_ item: HistoryItem) {
-        guard onChoose(item) else {
+    private func choose(_ item: HistoryItem, mode: ClipboardCopyMode) {
+        guard onChoose(item, mode) else {
             return
         }
 
         onClose()
+    }
+
+    private func shouldShowCopyActions(for item: HistoryItem) -> Bool {
+        guard item.type == .text || item.type == .rtf else {
+            return false
+        }
+
+        return selectedItemID == item.id || hoveredItemID == item.id
+    }
+
+    private func alternativeMode(for item: HistoryItem) -> ClipboardCopyMode {
+        guard item.type == .text || item.type == .rtf else {
+            return .original
+        }
+
+        return defaultCopyMode.alternative
     }
 
     private var noHistoryState: some View {

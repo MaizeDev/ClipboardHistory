@@ -5,6 +5,26 @@
 
 import AppKit
 
+enum ClipboardCopyMode: String, CaseIterable, Identifiable {
+    case original
+    case plainText
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .original:
+            "保留格式"
+        case .plainText:
+            "纯文本"
+        }
+    }
+
+    var alternative: ClipboardCopyMode {
+        self == .original ? .plainText : .original
+    }
+}
+
 @MainActor
 final class PasteService {
 
@@ -15,7 +35,11 @@ final class PasteService {
     }
 
     @discardableResult
-    func copy(item: HistoryItem) -> Bool {
+    func copy(item: HistoryItem, mode: ClipboardCopyMode) -> Bool {
+        if mode == .plainText {
+            return copyAsPlainText(item)
+        }
+
         switch item.type {
         case .text:
             guard let text = item.textContent else {
@@ -57,5 +81,15 @@ final class PasteService {
         case .unknown:
             return false
         }
+    }
+
+    private func copyAsPlainText(_ item: HistoryItem) -> Bool {
+        guard item.type == .text || item.type == .rtf,
+              let text = item.textContent else {
+            return false
+        }
+
+        pasteboard.clearContents()
+        return pasteboard.setString(text, forType: .string)
     }
 }

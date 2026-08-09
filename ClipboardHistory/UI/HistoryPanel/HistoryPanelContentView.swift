@@ -41,9 +41,10 @@ struct HistoryPanelCommandRequest: Equatable {
 struct HistoryPanelContentView: View {
 
     let viewState: HistoryPanelViewState
+    let preferences: AppPreferences
     let onDelete: (HistoryItem) -> Void
     let onTogglePin: (HistoryItem) -> Void
-    let onChoose: (HistoryItem) -> Bool
+    let onChoose: (HistoryItem, ClipboardCopyMode) -> Bool
     let onClose: () -> Void
 
     @State
@@ -66,6 +67,7 @@ struct HistoryPanelContentView: View {
             HistoryListView(
                 searchText: searchText,
                 commandRequest: viewState.commandRequest,
+                defaultCopyMode: preferences.defaultCopyMode,
                 onDelete: onDelete,
                 onTogglePin: onTogglePin,
                 onChoose: onChoose,
@@ -110,9 +112,10 @@ struct HistoryPanelContentView: View {
 #Preview {
     HistoryPanelContentView(
         viewState: HistoryPanelViewState(),
+        preferences: AppPreferences(),
         onDelete: { _ in },
         onTogglePin: { _ in },
-        onChoose: { _ in true },
+        onChoose: { _, _ in true },
         onClose: {}
     )
         .modelContainer(for: HistoryItem.self, inMemory: true)

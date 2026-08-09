@@ -29,13 +29,12 @@ struct SettingsView: View {
                     Label("通用", systemImage: "gearshape")
                 }
 
-            ignoreSettings
+            privacySettings
                 .tabItem {
-                    Label("忽略规则", systemImage: "eye.slash")
+                    Label("隐私", systemImage: "hand.raised")
                 }
         }
-        .frame(width: 520, height: 410)
-        .scenePadding()
+        .frame(width: 680, height: 520)
         .alert(
             "清空全部剪贴板历史？",
             isPresented: $isShowingClearConfirmation
@@ -77,93 +76,146 @@ struct SettingsView: View {
     }
 
     private var generalSettings: some View {
-        Form {
-            Section("快捷键") {
+        VStack(alignment: .leading, spacing: 12) {
+            SettingsSectionCard(title: "操作") {
                 KeyboardShortcuts.Recorder(
                     "打开剪贴板历史：",
                     name: .toggleHistoryPanel
                 )
 
-                Text("在任何应用中按这个组合键，都可以显示或隐藏历史浮窗。")
+                Divider()
+
+                HStack {
+                    Text("按 Enter 时")
+                    Spacer()
+                    Picker("", selection: $preferences.defaultCopyMode) {
+                        ForEach(ClipboardCopyMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 210)
+                }
+
+                Text("Option + Enter 会临时使用另一种方式。文字卡片上也提供两个按钮。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("历史记录") {
-                Picker(
-                    "最多保留未固定记录：",
-                    selection: $preferences.maximumHistoryCount
-                ) {
-                    ForEach(AppPreferences.historyCountOptions, id: \.self) {
-                        count in
-                        Text("\(count) 条").tag(count)
+            SettingsSectionCard(title: "历史记录") {
+                HStack {
+                    Text("最多保留未固定记录")
+                    Spacer()
+                    Picker("", selection: $preferences.maximumHistoryCount) {
+                        ForEach(
+                            AppPreferences.historyCountOptions,
+                            id: \.self
+                        ) { count in
+                            Text("\(count) 条").tag(count)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 140)
+                }
+
+                Divider()
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("清空历史记录")
+                        Text("固定记录也会一起删除。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button("清空全部历史…", role: .destructive) {
+                        isShowingClearConfirmation = true
                     }
                 }
-
-                Text("固定的记录不会被自动清理。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Button("清空全部历史…", role: .destructive) {
-                    isShowingClearConfirmation = true
-                }
             }
 
-            Section("启动") {
+            SettingsSectionCard(title: "启动") {
                 Toggle("登录 Mac 时自动启动", isOn: launchAtLoginBinding)
 
                 if launchAtLogin.requiresApproval {
-                    LabeledContent {
+                    Divider()
+
+                    HStack {
+                        Text("需要在系统设置中允许")
+                            .foregroundStyle(.secondary)
+                        Spacer()
                         Button("打开系统设置") {
                             launchAtLogin.openSystemSettings()
                         }
-                    } label: {
-                        Text("需要在系统设置中允许")
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
+
+            Spacer(minLength: 0)
         }
-        .formStyle(.grouped)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
     }
 
-    private var ignoreSettings: some View {
-        Form {
-            Section("忽略的应用") {
+    private var privacySettings: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsSectionCard(title: "自动保护") {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.title2)
+                        .foregroundStyle(.green)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("自动忽略密码和临时剪贴板内容")
+                            .fontWeight(.medium)
+                        Text(
+                            "当密码管理器或其他应用把内容标记为机密、自动生成或临时时，ClipboardHistory 不会读取或保存它。"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Label("已开启", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+            }
+
+            SettingsSectionCard(title: "忽略的应用") {
+                Text("从下列应用复制的任何内容都不会进入历史记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 if preferences.ignoredApplications.isEmpty {
                     ContentUnavailableView(
                         "没有忽略的应用",
                         systemImage: "app.dashed",
-                        description: Text("从这些应用复制的内容仍会正常记录。")
+                        description: Text("需要时可以把密码管理器或其他应用添加到这里。")
                     )
-                    .frame(maxWidth: .infinity, minHeight: 120)
+                    .frame(maxWidth: .infinity, minHeight: 150)
                 } else {
                     List(preferences.ignoredApplications) { application in
                         ignoredApplicationRow(application)
                     }
-                    .frame(minHeight: 150)
+                    .listStyle(.inset)
+                    .frame(height: 190)
                 }
 
-                Button("添加应用…") {
-                    chooseApplicationToIgnore()
+                HStack {
+                    Button("添加应用…") {
+                        chooseApplicationToIgnore()
+                    }
+                    Spacer()
                 }
             }
 
-            Section("忽略的内容类型") {
-                ForEach(supportedContentTypes, id: \.self) { type in
-                    Toggle(type.settingsName, isOn: ignoreBinding(for: type))
-                }
-
-                Text("被忽略的内容不会进入历史记录，也不会占用本地存储空间。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Spacer(minLength: 0)
         }
-        .formStyle(.grouped)
-    }
-
-    private var supportedContentTypes: [ClipboardContentType] {
-        [.text, .rtf, .image, .fileURL]
+        .padding(20)
     }
 
     private var launchAtLoginBinding: Binding<Bool> {
@@ -192,15 +244,6 @@ struct SettingsView: View {
                     launchAtLogin.clearError()
                 }
             }
-        )
-    }
-
-    private func ignoreBinding(
-        for type: ClipboardContentType
-    ) -> Binding<Bool> {
-        Binding(
-            get: { preferences.isIgnoring(type) },
-            set: { preferences.setIgnoring($0, type: type) }
         )
     }
 
@@ -269,20 +312,33 @@ struct SettingsView: View {
     }
 }
 
-private extension ClipboardContentType {
+private struct SettingsSectionCard<Content: View>: View {
 
-    var settingsName: String {
-        switch self {
-        case .text:
-            "纯文字"
-        case .rtf:
-            "富文本（带格式文字）"
-        case .image:
-            "图片"
-        case .fileURL:
-            "文件"
-        case .unknown:
-            "未知类型"
+    let title: String
+    let content: Content
+
+    init(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 10) {
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.quaternary.opacity(0.65))
+            )
         }
     }
 }

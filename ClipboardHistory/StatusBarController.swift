@@ -13,17 +13,17 @@ final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
     private let contextMenu = NSMenu()
     private let onTogglePanel: () -> Void
-    private let onPrintHistory: () -> Void
+    private let onOpenSettings: () -> Void
 
     init(
         onTogglePanel: @escaping () -> Void,
-        onPrintHistory: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void
     ) {
         self.statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength
         )
         self.onTogglePanel = onTogglePanel
-        self.onPrintHistory = onPrintHistory
+        self.onOpenSettings = onOpenSettings
 
         super.init()
 
@@ -37,12 +37,17 @@ final class StatusBarController: NSObject {
             return
         }
 
+        let symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: 15,
+            weight: .regular
+        )
         button.image = NSImage(
             systemSymbolName: "doc.on.clipboard",
             accessibilityDescription: "剪贴板历史"
-        )
-
+        )?.withSymbolConfiguration(symbolConfiguration)
         button.image?.isTemplate = true
+
+        button.imageScaling = .scaleProportionallyDown
         button.toolTip = "剪贴板历史（⇧⌘C）"
 
         button.target = self
@@ -76,16 +81,6 @@ final class StatusBarController: NSObject {
         quitItem.target = self
 
         contextMenu.addItem(settingsItem)
-
-        #if DEBUG
-        let printHistoryItem = NSMenuItem(
-            title: "打印历史",
-            action: #selector(printHistory),
-            keyEquivalent: ""
-        )
-        printHistoryItem.target = self
-        contextMenu.addItem(printHistoryItem)
-        #endif
 
         contextMenu.addItem(.separator())
         contextMenu.addItem(quitItem)
@@ -122,27 +117,8 @@ final class StatusBarController: NSObject {
     }
 
     @objc
-    private func printHistory() {
-        onPrintHistory()
-    }
-
-    @objc
     private func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-
-        let didOpen = NSApp.sendAction(
-            Selector(("showSettingsWindow:")),
-            to: nil,
-            from: nil
-        )
-
-        if !didOpen {
-            NSApp.sendAction(
-                Selector(("showPreferencesWindow:")),
-                to: nil,
-                from: nil
-            )
-        }
+        onOpenSettings()
     }
 
     @objc

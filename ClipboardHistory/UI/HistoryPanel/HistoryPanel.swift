@@ -18,14 +18,17 @@ final class HistoryPanel: NSPanel {
 
     private let onDelete: (HistoryItem) -> Void
     private let onTogglePin: (HistoryItem) -> Void
-    private let onChoose: (HistoryItem) -> Bool
+    private let onChoose: (HistoryItem, ClipboardCopyMode) -> Bool
+    private let preferences: AppPreferences
 
     init(
         modelContainer: ModelContainer,
+        preferences: AppPreferences,
         onDelete: @escaping (HistoryItem) -> Void,
         onTogglePin: @escaping (HistoryItem) -> Void,
-        onChoose: @escaping (HistoryItem) -> Bool
+        onChoose: @escaping (HistoryItem, ClipboardCopyMode) -> Bool
     ) {
+        self.preferences = preferences
         self.onDelete = onDelete
         self.onTogglePin = onTogglePin
         self.onChoose = onChoose
@@ -123,6 +126,7 @@ final class HistoryPanel: NSPanel {
     private func configureContent(modelContainer: ModelContainer) {
         let rootView = HistoryPanelContentView(
             viewState: viewState,
+            preferences: preferences,
             onDelete: onDelete,
             onTogglePin: onTogglePin,
             onChoose: onChoose,

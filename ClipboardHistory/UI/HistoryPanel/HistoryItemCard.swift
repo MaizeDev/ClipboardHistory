@@ -10,11 +10,22 @@ struct HistoryItemCard: View {
 
     let item: HistoryItem
     let isSelected: Bool
+    let referenceDate: Date
+    let showsCopyActions: Bool
+    let onCopyOriginal: () -> Void
+    let onCopyPlainText: () -> Void
+
+    @State
+    private var fileThumbnail: NSImage?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             metadata
             contentPreview
+
+            if showsCopyActions {
+                copyActions
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -39,6 +50,24 @@ struct HistoryItemCard: View {
         .accessibilityElement(children: .combine)
     }
 
+    private var copyActions: some View {
+        HStack(spacing: 8) {
+            Spacer()
+
+            Button("保留格式", systemImage: "doc.on.clipboard") {
+                onCopyOriginal()
+            }
+            .help("复制文字并保留原有格式")
+
+            Button("纯文本", systemImage: "textformat") {
+                onCopyPlainText()
+            }
+            .help("只复制文字，去掉字体、颜色和链接格式")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
     private var metadata: some View {
         HStack(spacing: 8) {
             Image(nsImage: sourceApplicationIcon)
@@ -60,7 +89,12 @@ struct HistoryItemCard: View {
                     .accessibilityLabel("已固定")
             }
 
-            Text(item.timestamp, style: .relative)
+            Text(
+                HistoryRelativeTimeFormatter.string(
+                    from: item.timestamp,
+                    relativeTo: referenceDate
+                )
+            )
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -88,22 +122,7 @@ struct HistoryItemCard: View {
 
         case .fileURL:
             if let fileURL = item.fileURL {
-                Label {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(fileURL.lastPathComponent)
-                            .font(.body.weight(.medium))
-                            .lineLimit(1)
-                        Text(fileURL.deletingLastPathComponent().path)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                } icon: {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: fileURL.path))
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 30, height: 30)
-                }
+                filePreview(fileURL)
             } else {
                 unavailablePreview("无法读取文件", systemImage: "doc")
             }
@@ -113,8 +132,58 @@ struct HistoryItemCard: View {
         }
     }
 
+    private func filePreview(_ fileURL: URL) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+
+                if let fileThumbnail {
+                    Image(nsImage: fileThumbnail)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(6)
+                } else {
+                    Image(nsImage: fileIcon(for: fileURL))
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 48, height: 48)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 100, maxHeight: 120)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Label {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(fileURL.lastPathComponent)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+                    Text(fileURL.deletingLastPathComponent().path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            } icon: {
+                Image(nsImage: fileIcon(for: fileURL))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 30, height: 30)
+            }
+        }
+        .task(id: fileURL.path) {
+            fileThumbnail = nil
+            fileThumbnail = await FileThumbnailService.shared.thumbnail(
+                for: fileURL
+            )
+        }
+    }
+
     private var sourceApplicationName: String {
         item.sourceAppName.isEmpty ? "未知来源" : item.sourceAppName
+    }
+
+    private func fileIcon(for fileURL: URL) -> NSImage {
+        NSWorkspace.shared.icon(forFile: fileURL.path)
     }
 
     private var sourceApplicationIcon: NSImage {
