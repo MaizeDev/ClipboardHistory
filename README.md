@@ -1,54 +1,60 @@
 # ClipboardHistory
 
-一个轻量、开源、只在本机保存数据的 macOS 剪贴板历史工具。
+**English** | [简体中文](README-zh.md)
 
-> 当前最低支持 macOS 15.6。应用不会上传剪贴板内容，也不需要“辅助功能”权限。
+A lightweight, open-source clipboard history app for macOS that keeps all data on your Mac.
 
-## 安装
+> The current minimum requirement is macOS 15.6. The app does not upload clipboard contents or require Accessibility permission.
 
-1. 打开项目的 [Releases 页面](../../releases/latest)。
-2. 下载最新的 `ClipboardHistory-v*.dmg`。
-3. 打开 DMG，把 `ClipboardHistory` 拖到“应用程序”。
-4. 第一次启动后，应用图标会出现在菜单栏。
+## Installation
 
-如果 Release 标记为“未公证测试版”，macOS 可能显示安全提醒。公开发布的正式版应使用 Developer ID 签名并完成 Apple 公证。
+1. Open the project's [Releases page](../../releases/latest).
+2. Download the latest `ClipboardHistory-v*.dmg`.
+3. Open the DMG and drag `ClipboardHistory` into Applications.
+4. Launch the app. Its icon will appear in the menu bar.
 
-## 使用
+If a release is marked as an "unnotarized test build," macOS may show a security warning. Public production releases should be signed with a Developer ID certificate and notarized by Apple.
 
-- 正常复制文字、带格式文字、图片或文件，内容会自动进入本机历史。
-- 按 `⇧⌘C` 打开或关闭历史浮窗。
-- 输入关键词可搜索内容、文件名或来源应用。
-- 鼠标单击选择卡片，双击复制并关闭浮窗。
+## Usage
 
-| 按键 | 功能 |
+- Copy text, rich text, images, or files as usual. They are automatically added to your local history.
+- Press `⇧⌘C` to show or hide the history panel.
+- Enter a keyword to search content, filenames, or source applications.
+- Finder images, videos, and common documents use Quick Look thumbnails when available.
+- Click a card to select it, or double-click it to copy the item using the default mode and close the panel.
+- Select or hover over a text card to choose **Keep Formatting** or **Plain Text** directly.
+
+| Key | Action |
 | --- | --- |
-| `↑` / `↓` | 移动选中卡片 |
-| `Enter` | 复制选中内容并关闭浮窗 |
-| `⌘1`～`⌘9` | 选择前 9 条记录 |
-| `Delete` / `Backspace` | 删除选中记录 |
-| `⌘P` | 固定或取消固定 |
-| `Esc` | 关闭浮窗 |
+| `↑` / `↓` | Move the selection |
+| `Enter` | Copy the selected item and close the panel |
+| `Option + Enter` | Temporarily use the other text copy mode |
+| `⌘1`–`⌘9` | Select one of the first nine items |
+| `Delete` / `Backspace` | Delete the selected item |
+| `⌘P` | Pin or unpin the selected item |
+| `Esc` | Close the panel |
 
-在菜单栏图标上点击右键并选择“偏好设置”，可以修改全局快捷键、历史数量、登录启动以及忽略规则。
+Click the menu bar icon and choose **偏好设置…** (Preferences) to change the global shortcut, default text copy mode, history limit, launch-at-login behavior, and privacy rules.
 
-## 隐私
+## Privacy
 
-- 所有历史数据使用 SwiftData 保存在本机。
-- 不包含账户、云同步、统计 SDK 或网络上传功能。
-- 可以在偏好设置中清空全部记录，或忽略指定应用和内容类型。
+- All history data is stored locally with SwiftData.
+- The app has no accounts, cloud sync, analytics SDKs, or network upload features.
+- Clipboard contents marked confidential, transient, or auto-generated are skipped automatically.
+- You can clear all history or ignore specific apps in Preferences.
 
-完整说明见 [PRIVACY.md](PRIVACY.md)。
+See [PRIVACY.md](PRIVACY.md) for complete details.
 
-## 从源码构建
+## Building from source
 
-需要 macOS、Xcode 26 或更高版本。
+You need macOS and Xcode 26 or later.
 
-1. 使用 Xcode 打开 `ClipboardHistory.xcodeproj`。
-2. 等待 Swift Package Manager 取得 `KeyboardShortcuts` 3.0.1。
-3. 选择 `ClipboardHistory` scheme 和 `My Mac`。
-4. 点击运行。
+1. Open `ClipboardHistory.xcodeproj` in Xcode.
+2. Wait for Swift Package Manager to fetch `KeyboardShortcuts` 3.0.1.
+3. Select the `ClipboardHistory` scheme and `My Mac`.
+4. Click Run.
 
-命令行编译：
+To build from the command line:
 
 ```bash
 xcodebuild \
@@ -60,16 +66,16 @@ xcodebuild \
   build
 ```
 
-## 发布 DMG
+## Packaging a DMG
 
-项目提供可重复执行的打包脚本：
+The project includes a reusable packaging script:
 
 ```bash
 ./scripts/package_dmg.sh 1.0.0
 ```
 
-没有 Developer ID 时，脚本会创建只适合本机验证的临时签名 DMG。正式公开发布的签名和公证方法见 [docs/RELEASING.md](docs/RELEASING.md)。
+Without a Developer ID certificate, the script creates an ad-hoc signed DMG suitable only for local testing. For production signing and notarization instructions, see [docs/RELEASING.md](docs/RELEASING.md).
 
-## 开源许可
+## License
 
-本项目使用 [MIT License](LICENSE)。第三方依赖 `KeyboardShortcuts` 同样使用 MIT License。
+This project is available under the [MIT License](LICENSE). The `KeyboardShortcuts` dependency is also licensed under the MIT License.
