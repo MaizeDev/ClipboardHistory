@@ -1,0 +1,226 @@
+//
+//  ClipboardMonitor.swift
+//  ClipboardHistory
+//
+//  Created by wheat on 8/6/26.
+//
+
+import AppKit
+import Foundation
+
+struct ClipboardCapture {
+
+    let contentData: Data
+    let contentType: ClipboardContentType
+
+    let sourceAppName: String
+    let sourceBundleID: String
+
+    let contentHash: String
+    let capturedAt: Date
+}
+
+@MainActor
+final class ClipboardMonitor {
+
+    typealias CaptureHandler = (ClipboardCapture) -> Void
+
+    // MARK: - Properties
+
+    private let pasteboard: NSPasteboard
+    private let pollingInterval: TimeInterval
+    private let shouldIgnoreCapture: (
+        _ sourceBundleID: String,
+        _ contentType: ClipboardContentType
+    ) -> Bool
+
+    private var timer: Timer?
+    private var lastChangeCount: Int
+    private var ignoredChangeCount: Int?
+
+    var onCapture: CaptureHandler?
+
+    var isRunning: Bool {
+        timer != nil
+    }
+
+    // MARK: - Initialization
+
+    init(
+        pasteboard: NSPasteboard = .general,
+        pollingInterval: TimeInterval = 0.5,
+        shouldIgnoreCapture: @escaping (
+            _ sourceBundleID: String,
+            _ contentType: ClipboardContentType
+        ) -> Bool = { _, _ in false }
+    ) {
+        self.pasteboard = pasteboard
+        self.pollingInterval = pollingInterval
+        self.shouldIgnoreCapture = shouldIgnoreCapture
+        self.lastChangeCount = pasteboard.changeCount
+    }
+
+    deinit {
+        timer?.invalidate()
+    }
+
+    // MARK: - Lifecycle
+
+    func start() {
+        guard timer == nil else {
+            return
+        }
+
+        lastChangeCount = pasteboard.changeCount
+
+        let timer = Timer(
+            timeInterval: pollingInterval,
+            repeats: true
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.checkPasteboard()
+            }
+        }
+
+        timer.tolerance = min(pollingInterval * 0.1, 0.05)
+
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+
+        #if DEBUG
+        print("剪贴板监听已启动")
+        #endif
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+
+        #if DEBUG
+        print("剪贴板监听已停止")
+        #endif
+    }
+
+    /// 在本 App 写入剪贴板之后调用。
+    /// 记录当前 changeCount，避免监听器再次捕获本次写入。
+    func markCurrentChangeAsSelfWrite() {
+        ignoredChangeCount = pasteboard.changeCount
+    }
+
+    // MARK: - Polling
+
+    private func checkPasteboard() {
+        let currentChangeCount = pasteboard.changeCount
+
+        guard currentChangeCount != lastChangeCount else {
+            return
+        }
+
+        lastChangeCount = currentChangeCount
+
+        if ignoredChangeCount == currentChangeCount {
+            ignoredChangeCount = nil
+            return
+        }
+
+        ignoredChangeCount = nil
+
+        guard let content = readContent() else {
+            return
+        }
+
+        let sourceApplication = NSWorkspace.shared.frontmostApplication
+        let sourceBundleID = sourceApplication?.bundleIdentifier ?? ""
+
+        guard !shouldIgnoreCapture(sourceBundleID, content.type) else {
+            return
+        }
+
+        let capture = ClipboardCapture(
+            contentData: content.data,
+            contentType: content.type,
+            sourceAppName: sourceApplication?.localizedName ?? "",
+            sourceBundleID: sourceBundleID,
+            contentHash: HistoryItem.generateContentHash(
+                data: content.data,
+                type: content.type
+            ),
+            capturedAt: Date()
+        )
+
+        onCapture?(capture)
+    }
+
+    // MARK: - Content parsing
+
+    private func readContent() -> (
+        type: ClipboardContentType,
+        data: Data
+    )? {
+        /*
+         优先读取更明确、信息更丰富的类型。
+
+         文件和图片剪贴板通常同时提供 string 类型。
+         如果先判断 string，会错误地把文件路径或图片识别成文本。
+         */
+
+        if let fileURLContent = readFileURL() {
+            return fileURLContent
+        }
+
+        if let imageContent = readImage() {
+            return imageContent
+        }
+
+        if let rtfData = pasteboard.data(forType: .rtf),
+           !rtfData.isEmpty {
+            return (.rtf, rtfData)
+        }
+
+        if let string = pasteboard.string(forType: .string),
+           !string.isEmpty,
+           let data = string.data(using: .utf8) {
+            return (.text, data)
+        }
+
+        return nil
+    }
+
+    private func readFileURL() -> (
+        type: ClipboardContentType,
+        data: Data
+    )? {
+        guard let urlString = pasteboard.string(forType: .fileURL),
+              let url = URL(string: urlString),
+              url.isFileURL else {
+            return nil
+        }
+
+        /*
+         HistoryItem.fileURL 使用文件路径解码，
+         因此这里统一保存 url.path，而不是 absoluteString。
+         */
+        guard let data = url.path.data(using: .utf8) else {
+            return nil
+        }
+
+        return (.fileURL, data)
+    }
+
+    private func readImage() -> (
+        type: ClipboardContentType,
+        data: Data
+    )? {
+        if let pngData = pasteboard.data(forType: .png),
+           !pngData.isEmpty {
+            return (.image, pngData)
+        }
+
+        if let tiffData = pasteboard.data(forType: .tiff),
+           !tiffData.isEmpty {
+            return (.image, tiffData)
+        }
+
+        return nil
+    }
+}

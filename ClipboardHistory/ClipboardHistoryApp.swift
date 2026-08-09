@@ -5,28 +5,42 @@
 //  Created by wheat on 8/6/26.
 //
 
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 @main
 struct ClipboardHistoryApp: App {
-    var sharedModelContainer: ModelContainer = {
+
+    @NSApplicationDelegateAdaptor(AppDelegate.self)
+    private var appDelegate
+
+    static let modelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            HistoryItem.self
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+
+        let configuration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false
+        )
 
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try ModelContainer(
+                for: schema,
+                configurations: [configuration]
+            )
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            fatalError("无法创建 SwiftData ModelContainer：\(error)")
         }
     }()
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Settings {
+            SettingsView(
+                preferences: appDelegate.preferences,
+                onClearHistory: appDelegate.clearHistory
+            )
         }
-        .modelContainer(sharedModelContainer)
+        .modelContainer(Self.modelContainer)
     }
 }
