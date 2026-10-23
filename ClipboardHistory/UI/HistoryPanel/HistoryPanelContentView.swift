@@ -9,56 +9,34 @@ import SwiftUI
 enum HistoryPanelLayout {
     static let width: CGFloat = 460
     static let height: CGFloat = 560
-}
 
-@Observable
-@MainActor
-final class HistoryPanelViewState {
+    /// 顶部标题栏的高度。这一块同时是拖动浮窗的区域。
+    static let headerHeight: CGFloat = 58
 
-    private(set) var searchFocusRequest = 0
-    private(set) var commandRequest: HistoryPanelCommandRequest?
-
-    private var commandSequence = 0
-
-    func requestSearchFocus() {
-        searchFocusRequest += 1
-    }
-
-    func send(_ command: HistoryPanelCommand) {
-        commandSequence += 1
-        commandRequest = HistoryPanelCommandRequest(
-            sequence: commandSequence,
-            command: command
-        )
-    }
-}
-
-struct HistoryPanelCommandRequest: Equatable {
-    let sequence: Int
-    let command: HistoryPanelCommand
+    /// 标题栏左侧关闭按钮占用的宽度，这一段不作为拖动区域。
+    static let headerDragInset: CGFloat = 56
 }
 
 struct HistoryPanelContentView: View {
 
-    let viewState: HistoryPanelViewState
+    @Bindable var viewState: HistoryPanelViewState
+
     let preferences: AppPreferences
-    let onDelete: (HistoryItem) -> Void
-    let onTogglePin: (HistoryItem) -> Void
-    let onToggleFavorite: (HistoryItem) -> Void
-    let onChoose: (HistoryItem, ClipboardCopyMode) -> Bool
+    let onDelete: (HistoryRow) -> Void
+    let onUndoDelete: () -> Void
+    let onTogglePin: (HistoryRow) -> Void
+    let onToggleFavorite: (HistoryRow) -> Void
+    let onChoose: (HistoryRow, ClipboardCopyMode) -> Bool
     let onClose: () -> Void
 
-    @State
-    private var searchText = ""
-
-    @State
-    private var selectedSection = HistoryPanelSection.history
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
             header
 
-            Picker("显示内容", selection: $selectedSection) {
+            Picker("显示内容", selection: $viewState.selectedSection) {
                 ForEach(HistoryPanelSection.allCases) { section in
                     Label(section.title, systemImage: section.systemImage)
                         .tag(section)
@@ -70,7 +48,7 @@ struct HistoryPanelContentView: View {
             .padding(.bottom, 10)
 
             SearchBar(
-                text: $searchText,
+                text: $viewState.searchText,
                 focusRequest: viewState.searchFocusRequest
             )
             .padding(.horizontal, 16)
@@ -80,20 +58,57 @@ struct HistoryPanelContentView: View {
                 .opacity(0.45)
 
             HistoryListView(
-                searchText: searchText,
-                section: selectedSection,
+                searchText: viewState.searchText,
+                section: viewState.selectedSection,
                 commandRequest: viewState.commandRequest,
                 defaultCopyMode: preferences.defaultCopyMode,
                 onDelete: onDelete,
                 onTogglePin: onTogglePin,
                 onToggleFavorite: onToggleFavorite,
                 onChoose: onChoose,
-                onClose: onClose
+                onCopyFailure: { item in
+                    viewState.showNotice(copyFailureMessage(for: item))
+                },
+                onClose: onClose,
+                isListFocused: viewState.isListFocused,
+                onFocusList: { viewState.focusList() }
             )
+            .id(viewState.presentationID)
+            .environment(viewState)
         }
         .frame(
             width: HistoryPanelLayout.width,
             height: HistoryPanelLayout.height
+        )
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 8) {
+                if let noticeMessage = viewState.noticeMessage {
+                    PanelNoticeBanner(message: noticeMessage)
+                        .transition(
+                            .move(edge: .bottom).combined(with: .opacity)
+                        )
+                }
+
+                if viewState.undoCount > 0 {
+                    UndoDeleteBanner(
+                        count: viewState.undoCount,
+                        onUndo: onUndoDelete
+                    )
+                    .transition(
+                        .move(edge: .bottom).combined(with: .opacity)
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+        }
+        .animation(
+            reduceMotion ? nil : .snappy(duration: 0.25),
+            value: viewState.undoCount > 0
+        )
+        .animation(
+            reduceMotion ? nil : .snappy(duration: 0.25),
+            value: viewState.noticeMessage
         )
         .background(.regularMaterial)
         .clipShape(.rect(cornerRadius: 24))
@@ -111,7 +126,7 @@ struct HistoryPanelContentView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 24, height: 24)
                 .background(.primary.opacity(0.08), in: Circle())
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
             Text("剪贴板历史")
                 .font(.title3.weight(.semibold))
@@ -119,21 +134,56 @@ struct HistoryPanelContentView: View {
             Spacer()
         }
         .padding(.horizontal, 20)
-        .frame(height: 58)
+        .frame(height: HistoryPanelLayout.headerHeight)
     }
 
+    /// 复制失败时给用户的提示。文件记录最常见的原因是文件被移动或删除了。
+    private func copyFailureMessage(for item: HistoryRow) -> String {
+        switch item.type {
+        case .fileURL:
+            "复制失败：文件可能已被移动或删除。"
+        case .image:
+            "复制失败：图片内容可能已损坏。"
+        case .text, .rtf, .unknown:
+            "复制失败：内容可能已失效。"
+        }
+    }
+}
+
+private struct PanelNoticeBanner: View {
+
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "exclamationmark.circle.fill")
+            .font(.callout)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.regularMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(.primary.opacity(0.12), lineWidth: 1)
+            }
+    }
 }
 
 #Preview {
+    let container = try! ModelContainer(
+        for: HistoryItem.self,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+    )
+
     HistoryPanelContentView(
         viewState: HistoryPanelViewState(),
         preferences: AppPreferences(),
         onDelete: { _ in },
+        onUndoDelete: {},
         onTogglePin: { _ in },
         onToggleFavorite: { _ in },
         onChoose: { _, _ in true },
         onClose: {}
     )
-        .modelContainer(for: HistoryItem.self, inMemory: true)
-        .padding(40)
+    .environment(HistoryStore(modelContext: container.mainContext))
+    .padding(40)
 }

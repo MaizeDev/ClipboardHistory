@@ -3,7 +3,7 @@
 //  ClipboardHistory
 //
 
-enum HistoryPanelSection: String, CaseIterable, Identifiable {
+enum HistoryPanelSection: String, CaseIterable, Identifiable, Equatable {
     case history
     case favorites
 

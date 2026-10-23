@@ -3,10 +3,13 @@
 //  ClipboardHistory
 //
 
-import KeyboardShortcuts
 import SwiftUI
 
 struct ShortcutSettingsView: View {
+
+    /// 恢复默认后递增，强制重建录制控件以刷新显示。
+    @State
+    private var resetVersion = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -19,6 +22,7 @@ struct ShortcutSettingsView: View {
                     }
                 }
             }
+            .id(resetVersion)
 
             SettingsSectionCard(title: "浮窗基本操作") {
                 Grid(horizontalSpacing: 28, verticalSpacing: 10) {
@@ -45,15 +49,15 @@ struct ShortcutSettingsView: View {
 
                 Spacer()
 
-                Button("恢复默认快捷键", action: EditableClipboardShortcut.resetAll)
+                Button("恢复默认快捷键") {
+                    EditableClipboardShortcut.resetAll()
+                    resetVersion += 1
+                }
             }
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .keyboardShortcutsConflictPolicy(
-            .init(systemShortcut: .allow)
-        )
     }
 }

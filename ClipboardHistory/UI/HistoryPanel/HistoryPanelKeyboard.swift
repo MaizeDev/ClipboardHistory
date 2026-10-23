@@ -103,6 +103,14 @@ enum HistoryPanelKeyboard {
         }
     }
 
+    static func isEscape(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        keyCode == escapeKeyCode
+            && normalizedModifiers(modifierFlags).isEmpty
+    }
+
     private static func normalizedModifiers(
         _ modifiers: NSEvent.ModifierFlags
     ) -> NSEvent.ModifierFlags {

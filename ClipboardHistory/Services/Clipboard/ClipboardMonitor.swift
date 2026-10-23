@@ -7,6 +7,14 @@
 
 import AppKit
 import Foundation
+import ImageIO
+import OSLog
+import UniformTypeIdentifiers
+
+private let monitorLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "ClipboardHistory",
+    category: "Monitor"
+)
 
 struct ClipboardCapture {
 
@@ -17,6 +25,10 @@ struct ClipboardCapture {
     let sourceBundleID: String
 
     let contentHash: String
+
+    /// 复制时剪贴板里的其他格式（已编码）。没有时为 nil。
+    let formatsData: Data?
+
     let capturedAt: Date
 }
 
@@ -30,6 +42,7 @@ final class ClipboardMonitor {
     private let pasteboard: NSPasteboard
     private let pollingInterval: TimeInterval
     private let shouldIgnoreSourceApplication: (_ sourceBundleID: String) -> Bool
+    private let isRecordingPaused: () -> Bool
 
     /// 常见密码管理器和临时剪贴板使用的公开类型标记。
     /// 发现这些标记时整条跳过，避免把机密内容写入本地历史。
@@ -41,12 +54,45 @@ final class ClipboardMonitor {
         NSPasteboard.PasteboardType("com.typeit4me.clipping"),
         NSPasteboard.PasteboardType("de.petermaurer.TransientPasteboardType"),
         NSPasteboard.PasteboardType("Pasteboard generator type"),
-        NSPasteboard.PasteboardType("net.antelle.keeweb")
+        NSPasteboard.PasteboardType("net.antelle.keeweb"),
+        // Apple 密码、Safari 密码自动填充等会写入这个私有标记。
+        NSPasteboard.PasteboardType("com.apple.is-sensitive")
     ]
+
+    /// 即使应用没有写“机密/临时”标记，这些密码管理器的内容也一律不记录。
+    /// Apple“密码”App 从密码详情里复制时就不一定带任何标记。
+    private static let knownPasswordManagerBundleIDs: Set<String> = [
+        "com.apple.Passwords",
+        "com.1password.1password",
+        "com.agilebits.onepassword7",
+        "com.bitwarden.desktop",
+        "com.dashlane.Dashlane",
+        "com.lastpass.LastPass",
+        "com.enpass.Enpass",
+        "com.nordpass.macos",
+        "org.keepassxc.keepassxc",
+        "me.proton.pass"
+    ]
+
+    /// 剪贴板里声明“内容来自哪个应用”的公开类型（nspasteboard.org 约定）。
+    /// 支持这个约定的应用会写入来源应用的 bundle ID，比“当前最前面的应用”更可靠。
+    private static let sourceApplicationType = NSPasteboard.PasteboardType(
+        "org.nspasteboard.source"
+    )
+
+    /// 单条记录保存的内容总大小上限（主要内容加上所有附加格式）。
+    /// 超过上限的附加格式会被丢掉；如果主要内容本身就超过上限，这次复制不会被记录。
+    /// 复制文件时只保存文件路径，不受这个上限影响。
+    private static let maximumRecordBytes = 20 * 1024 * 1024
 
     private var timer: Timer?
     private var lastChangeCount: Int
     private var ignoredChangeCount: Int?
+
+    /// 从上一次轮询到现在，出现过的前台应用。
+    /// 复制发生在这段时间里，所以来源一定在其中。
+    private var recentFrontmostBundleIDs: Set<String> = []
+    private var activationObserver: NSObjectProtocol?
 
     var onCapture: CaptureHandler?
 
@@ -61,16 +107,24 @@ final class ClipboardMonitor {
         pollingInterval: TimeInterval = 0.5,
         shouldIgnoreSourceApplication: @escaping (
             _ sourceBundleID: String
-        ) -> Bool = { _ in false }
+        ) -> Bool = { _ in false },
+        isRecordingPaused: @escaping () -> Bool = { false }
     ) {
         self.pasteboard = pasteboard
         self.pollingInterval = pollingInterval
         self.shouldIgnoreSourceApplication = shouldIgnoreSourceApplication
+        self.isRecordingPaused = isRecordingPaused
         self.lastChangeCount = pasteboard.changeCount
     }
 
     deinit {
         timer?.invalidate()
+
+        if let activationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(
+                activationObserver
+            )
+        }
     }
 
     // MARK: - Lifecycle
@@ -81,6 +135,30 @@ final class ClipboardMonitor {
         }
 
         lastChangeCount = pasteboard.changeCount
+
+        recentFrontmostBundleIDs = Self.bundleIDs(
+            of: NSWorkspace.shared.frontmostApplication
+        )
+
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let application = notification.userInfo?[
+                NSWorkspace.applicationUserInfoKey
+            ] as? NSRunningApplication
+            let bundleID = application?.bundleIdentifier
+
+            MainActor.assumeIsolated {
+                self?.noteApplicationActivated(bundleID: bundleID)
+                // 切到别的应用时立刻检查一次剪贴板：
+                // 如果复制发生在上一个（可能被忽略的）应用里，这时还能判断出来；
+                // 如果复制发生在切换之后，这一次检查不会命中，
+                // 下一次轮询时来源窗口已经收缩，不会再把上一个应用误当成来源。
+                self?.checkPasteboard()
+            }
+        }
 
         let timer = Timer(
             timeInterval: pollingInterval,
@@ -100,6 +178,14 @@ final class ClipboardMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
+
+        if let activationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(
+                activationObserver
+            )
+        }
+
+        activationObserver = nil
     }
 
     /// 在本 App 写入剪贴板之后调用。
@@ -111,6 +197,14 @@ final class ClipboardMonitor {
     // MARK: - Polling
 
     private func checkPasteboard() {
+        // 每次轮询都要更新“最近出现过的前台应用”，
+        // 让它始终只覆盖“上一次轮询到现在”这一小段时间，
+        // 也就是这次复制可能发生的时间窗口。
+        let frontmostApplication = NSWorkspace.shared.frontmostApplication
+        let currentBundleIDs = Self.bundleIDs(of: frontmostApplication)
+        let recentBundleIDs = recentFrontmostBundleIDs.union(currentBundleIDs)
+        recentFrontmostBundleIDs = currentBundleIDs
+
         let currentChangeCount = pasteboard.changeCount
 
         guard currentChangeCount != lastChangeCount else {
@@ -118,6 +212,14 @@ final class ClipboardMonitor {
         }
 
         lastChangeCount = currentChangeCount
+
+        // 暂停记录时不读取剪贴板内容。
+        // lastChangeCount 已经更新，所以恢复记录后，
+        // 暂停期间复制的内容不会被补记进来。
+        guard !isRecordingPaused() else {
+            ignoredChangeCount = nil
+            return
+        }
 
         if ignoredChangeCount == currentChangeCount {
             ignoredChangeCount = nil
@@ -130,30 +232,174 @@ final class ClipboardMonitor {
             return
         }
 
-        guard let content = readContent() else {
+        /*
+         先判断来源，再读取内容。
+         被忽略的应用复制的内容，根本不会被读取。
+
+         判断偏向保护隐私：
+         - 剪贴板自己声明了来源应用时，以声明为准（同时支持该约定的应用不会再被误判）；
+         - 没有声明时，看这段时间里出现过的前台应用，避免从被忽略的应用复制后
+           立刻切走、被误判成别的应用。
+         */
+        let declaredBundleID = declaredSourceBundleID
+
+        let sourceCandidates: Set<String> = if let declaredBundleID {
+            [declaredBundleID]
+        } else {
+            recentBundleIDs
+        }
+
+        guard !sourceCandidates.contains(where: shouldIgnoreSourceApplication) else {
             return
         }
 
-        let sourceApplication = NSWorkspace.shared.frontmostApplication
-        let sourceBundleID = sourceApplication?.bundleIdentifier ?? ""
-
-        guard !shouldIgnoreSourceApplication(sourceBundleID) else {
+        guard !sourceCandidates.contains(where: Self.isKnownPasswordManager) else {
             return
         }
+
+        guard var content = readContent() else {
+            return
+        }
+
+        // 大截图的 TIFF/PNG 可能超过上限。图片可以压缩后再保存，
+        // 没必要因为体积问题让用户这次复制凭空消失。
+        if content.type == .image,
+           content.data.count > Self.maximumRecordBytes {
+            let originalBytes = content.data.count
+
+            guard let fittedData = Self.downscaledImageData(
+                content.data,
+                maximumBytes: Self.maximumRecordBytes
+            ) else {
+                monitorLogger.notice(
+                    "图片超过 \(Self.maximumRecordBytes / 1_048_576) MB 且无法压缩，未记录这次复制"
+                )
+                return
+            }
+
+            content = (.image, fittedData)
+            monitorLogger.notice(
+                "图片原始大小 \(originalBytes / 1_024 / 1_024) MB，已压缩到 \(fittedData.count / 1_024 / 1_024) MB 后记录"
+            )
+        }
+
+        // 文字/富文本等其他内容超过上限时仍然跳过，避免把整份大文档写进数据库。
+        guard content.data.count <= Self.maximumRecordBytes else {
+            monitorLogger.notice(
+                "内容超过 \(Self.maximumRecordBytes / 1_048_576) MB，未记录这次复制"
+            )
+            return
+        }
+
+        // 文件只保存路径；图片只保存图片本身。
+        // 文字和富文本才需要保存其他格式（HTML、图片等），这样粘贴效果才和直接复制一致。
+        let formats: [StoredFormat] = switch content.type {
+        case .text, .rtf:
+            readAdditionalFormats(primaryData: content.data)
+        case .image, .fileURL, .unknown:
+            []
+        }
+
+        let source = resolveSourceApplication(
+            declaredBundleID: declaredBundleID,
+            frontmostApplication: frontmostApplication
+        )
 
         let capture = ClipboardCapture(
             contentData: content.data,
             contentType: content.type,
-            sourceAppName: sourceApplication?.localizedName ?? "",
-            sourceBundleID: sourceBundleID,
+            sourceAppName: source.name,
+            sourceBundleID: source.bundleID,
             contentHash: HistoryItem.generateContentHash(
                 data: content.data,
                 type: content.type
             ),
+            formatsData: StoredFormats.encode(formats),
             capturedAt: Date()
         )
 
         onCapture?(capture)
+    }
+
+    // MARK: - Source application
+
+    private func noteApplicationActivated(bundleID: String?) {
+        guard let bundleID, !bundleID.isEmpty else {
+            return
+        }
+
+        recentFrontmostBundleIDs.insert(bundleID)
+    }
+
+    private static func bundleIDs(
+        of application: NSRunningApplication?
+    ) -> Set<String> {
+        guard let bundleID = application?.bundleIdentifier,
+              !bundleID.isEmpty else {
+            return []
+        }
+
+        return [bundleID]
+    }
+
+    /// 剪贴板里声明的来源应用 bundle ID。没有声明时为 nil。
+    private var declaredSourceBundleID: String? {
+        guard let value = pasteboard.string(
+            forType: Self.sourceApplicationType
+        ) else {
+            return nil
+        }
+
+        let bundleID = value.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        return bundleID.isEmpty ? nil : bundleID
+    }
+
+    private static func isKnownPasswordManager(_ bundleID: String) -> Bool {
+        if knownPasswordManagerBundleIDs.contains(bundleID) {
+            return true
+        }
+
+        return bundleID.hasPrefix("com.1password.")
+            || bundleID.hasPrefix("com.agilebits.onepassword")
+            || bundleID.hasPrefix("com.bitwarden.")
+    }
+
+    /// 记录在历史里的来源：优先用剪贴板声明的，没有声明就用当前最前面的应用。
+    private func resolveSourceApplication(
+        declaredBundleID: String?,
+        frontmostApplication: NSRunningApplication?
+    ) -> (name: String, bundleID: String) {
+        guard let declaredBundleID else {
+            return (
+                frontmostApplication?.localizedName ?? "",
+                frontmostApplication?.bundleIdentifier ?? ""
+            )
+        }
+
+        if let runningApplication = NSRunningApplication.runningApplications(
+            withBundleIdentifier: declaredBundleID
+        ).first,
+           let name = runningApplication.localizedName {
+            return (name, declaredBundleID)
+        }
+
+        if let applicationURL = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: declaredBundleID
+        ) {
+            let displayName = FileManager.default.displayName(
+                atPath: applicationURL.path
+            )
+
+            return (
+                (displayName as NSString).deletingPathExtension,
+                declaredBundleID
+            )
+        }
+
+        return ("", declaredBundleID)
     }
 
     private var containsProtectedPasteboardType: Bool {
@@ -168,27 +414,43 @@ final class ClipboardMonitor {
         data: Data
     )? {
         /*
-         优先读取更明确、信息更丰富的类型。
+         读取顺序：
 
-         文件和图片剪贴板通常同时提供 string 类型。
-         如果先判断 string，会错误地把文件路径或图片识别成文本。
+         1. 文件优先。
+            Finder 复制文件时，剪贴板里同时有文件地址、图标图片和文件名文字，
+            必须先判断文件，否则会被当成图片或文字。
+
+         2. 图片和文字同时存在时，需要判断哪个才是用户想要的：
+            - 从网页或预览里复制图片：通常只有图片，或者只带一小段单行文字（比如图片地址）。
+              这种情况保存图片。
+            - 从 Excel、Numbers、Word 等复制单元格或文档内容：
+              剪贴板里除了文字，还会附带一张“渲染出来的图片”。
+              这种情况（带富文本，或文字有换行/制表符）保存文字，而不是图片。
+
+         3. 只有富文本或纯文本时，按富文本、纯文本的顺序保存。
          */
 
-        if let fileURLContent = readFileURL() {
-            return fileURLContent
+        if let fileContent = readFileURLs() {
+            return fileContent
         }
+
+        let rtfData = readRTF()
+        let string = readString()
 
         if let imageContent = readImage() {
-            return imageContent
+            let looksLikeDocumentCopy = rtfData != nil
+                || (string.map(Self.isMultilineOrTabular) ?? false)
+
+            if !looksLikeDocumentCopy {
+                return imageContent
+            }
         }
 
-        if let rtfData = pasteboard.data(forType: .rtf),
-           !rtfData.isEmpty {
+        if let rtfData {
             return (.rtf, rtfData)
         }
 
-        if let string = pasteboard.string(forType: .string),
-           !string.isEmpty,
+        if let string,
            let data = string.data(using: .utf8) {
             return (.text, data)
         }
@@ -196,21 +458,94 @@ final class ClipboardMonitor {
         return nil
     }
 
-    private func readFileURL() -> (
-        type: ClipboardContentType,
-        data: Data
-    )? {
-        guard let urlString = pasteboard.string(forType: .fileURL),
-              let url = URL(string: urlString),
-              url.isFileURL else {
+    /// 读取剪贴板第一项里除主要内容之外的所有格式。
+    /// 总大小受 `maximumRecordBytes` 限制：放不下的格式直接跳过，小的格式照常保存。
+    private func readAdditionalFormats(primaryData: Data) -> [StoredFormat] {
+        guard let item = pasteboard.pasteboardItems?.first else {
+            return []
+        }
+
+        var remainingBytes = Self.maximumRecordBytes - primaryData.count
+        var formats: [StoredFormat] = []
+
+        for type in item.types {
+            guard Self.shouldKeepFormat(type) else {
+                continue
+            }
+
+            guard let data = item.data(forType: type),
+                  !data.isEmpty,
+                  data != primaryData,
+                  data.count <= remainingBytes else {
+                continue
+            }
+
+            remainingBytes -= data.count
+            formats.append(StoredFormat(type: type.rawValue, data: data))
+        }
+
+        return formats
+    }
+
+    /// 这些类型不需要保存：
+    /// - 约定用的标记（来源应用、临时内容等），写回去反而会误导别的程序；
+    /// - 动态类型占位符，没有实际数据。
+    private static func shouldKeepFormat(
+        _ type: NSPasteboard.PasteboardType
+    ) -> Bool {
+        let identifier = type.rawValue
+
+        return !identifier.hasPrefix("org.nspasteboard.")
+            && !identifier.hasPrefix("dyn.")
+    }
+
+    private static func isMultilineOrTabular(_ string: String) -> Bool {
+        string.contains { character in
+            character == "\t" || character.isNewline
+        }
+    }
+
+    private func readRTF() -> Data? {
+        guard let data = pasteboard.data(forType: .rtf),
+              !data.isEmpty else {
             return nil
         }
 
+        return data
+    }
+
+    private func readString() -> String? {
+        guard let string = pasteboard.string(forType: .string),
+              !string.isEmpty else {
+            return nil
+        }
+
+        return string
+    }
+
+    private func readFileURLs() -> (
+        type: ClipboardContentType,
+        data: Data
+    )? {
         /*
-         HistoryItem.fileURL 使用文件路径解码，
-         因此这里统一保存 url.path，而不是 absoluteString。
+         一次复制多个文件时，剪贴板里有多个文件地址。
+         `string(forType: .fileURL)` 只能读到第一个，所以改用 `readObjects`。
+
+         `filePathURL` 是 NSURL 的属性（Swift 的 URL 没有），所以先转成 NSURL。
+         它会把 “/.file/id=…” 这样的文件引用地址转换成真正的路径。
          */
-        guard let data = url.path.data(using: .utf8) else {
+        let urls = (
+            pasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+            ) as? [URL]
+        ) ?? []
+
+        let fileURLs = urls
+            .map { ($0 as NSURL).filePathURL ?? $0 }
+            .filter(\.isFileURL)
+
+        guard let data = FileURLPayload.encode(fileURLs) else {
             return nil
         }
 
@@ -229,6 +564,79 @@ final class ClipboardMonitor {
         if let tiffData = pasteboard.data(forType: .tiff),
            !tiffData.isEmpty {
             return (.image, tiffData)
+        }
+
+        return nil
+    }
+
+    /// 把超大图片缩小并重新编码，直到大小不超过上限。
+    /// 截图在 Retina 屏上很容易超过 20 MB（尤其是未压缩 TIFF），
+    /// 直接丢弃会让用户以为这次复制没有被记录。
+    private static func downscaledImageData(
+        _ data: Data,
+        maximumBytes: Int
+    ) -> Data? {
+        guard let source = CGImageSourceCreateWithData(
+            data as CFData,
+            nil
+        ) else {
+            return nil
+        }
+
+        // 从大到小尝试，尽量保留清晰度。
+        for maxPixelSize in [2560, 1920, 1280, 960] {
+            let thumbnailOptions: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+
+            guard let image = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                thumbnailOptions as CFDictionary
+            ) else {
+                continue
+            }
+
+            let alphaInfo = image.alphaInfo
+            let hasAlpha = alphaInfo != .none
+                && alphaInfo != .noneSkipFirst
+                && alphaInfo != .noneSkipLast
+                && alphaInfo != .alphaOnly
+            let imageType = hasAlpha ? UTType.png : UTType.jpeg
+
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                output,
+                imageType.identifier as CFString,
+                1,
+                nil
+            ) else {
+                continue
+            }
+
+            var properties: [CFString: Any] = [:]
+            if imageType == .jpeg {
+                properties[kCGImageDestinationLossyCompressionQuality] = 0.82
+            }
+
+            CGImageDestinationAddImage(
+                destination,
+                image,
+                properties as CFDictionary
+            )
+
+            guard CGImageDestinationFinalize(destination) else {
+                continue
+            }
+
+            let result = output as Data
+
+            if result.count <= maximumBytes {
+                return result
+            }
         }
 
         return nil

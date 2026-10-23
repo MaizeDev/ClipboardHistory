@@ -87,6 +87,12 @@ enum EditableClipboardShortcut: CaseIterable, Identifiable {
             )
         }
 
+        if Self.isReservedTextEditingShortcut(shortcut) {
+            return .disallow(
+                reason: "这是文字输入和编辑的常用快捷键（复制、粘贴、撤销等），会干扰搜索框输入。"
+            )
+        }
+
         if let conflict = Self.allCases.first(where: {
             $0 != self && $0.name.shortcut == shortcut
         }) {
@@ -109,6 +115,38 @@ enum EditableClipboardShortcut: CaseIterable, Identifiable {
         KeyboardShortcuts.reset(allCases.map(\.name))
     }
 
+    /// 搜索框和系统文字编辑里约定俗成的快捷键。
+    /// 如果把它们分配给应用内动作，用户在搜索框里按 ⌘C/⌘V/⌘Z 时会得到意外行为。
+    private static func isReservedTextEditingShortcut(
+        _ shortcut: KeyboardShortcuts.Shortcut
+    ) -> Bool {
+        guard let key = shortcut.key else {
+            return false
+        }
+
+        let modifiers = shortcut.modifiers.intersection(
+            .deviceIndependentFlagsMask
+        )
+        let normalized = KeyboardShortcuts.Shortcut(
+            key,
+            modifiers: modifiers
+        )
+
+        return reservedEditingShortcuts.contains(normalized)
+    }
+
+    private static let reservedEditingShortcuts: Set<
+        KeyboardShortcuts.Shortcut
+    > = [
+        .init(.c, modifiers: [.command]),
+        .init(.v, modifiers: [.command]),
+        .init(.x, modifiers: [.command]),
+        .init(.a, modifiers: [.command]),
+        .init(.z, modifiers: [.command]),
+        .init(.z, modifiers: [.command, .shift]),
+        .init(.f, modifiers: [.command])
+    ]
+
     private static func isReservedPanelShortcut(
         _ shortcut: KeyboardShortcuts.Shortcut
     ) -> Bool {
@@ -123,6 +161,13 @@ enum EditableClipboardShortcut: CaseIterable, Identifiable {
             return [
                 KeyboardShortcuts.Key.upArrow,
                 .downArrow,
+                .leftArrow,
+                .rightArrow,
+                .home,
+                .end,
+                .pageUp,
+                .pageDown,
+                .tab,
                 .return,
                 .escape,
                 .delete,

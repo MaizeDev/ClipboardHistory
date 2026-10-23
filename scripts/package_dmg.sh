@@ -2,9 +2,22 @@
 
 set -euo pipefail
 
-release_version="${1:-1.0.0}"
 script_directory="$(cd "$(dirname "$0")" && pwd)"
 project_directory="$(cd "$script_directory/.." && pwd)"
+
+# 不传版本号时，直接使用 Xcode 工程里的 MARKETING_VERSION，
+# 避免 DMG 文件名、应用版本和 CHANGELOG 对不上。
+project_marketing_version="$(
+    awk -F'= ' '/MARKETING_VERSION = / { gsub(/;/, "", $2); print $2; exit }' \
+        "$project_directory/ClipboardHistory.xcodeproj/project.pbxproj"
+)"
+release_version="${1:-$project_marketing_version}"
+
+if [[ -z "$release_version" ]]; then
+    print "错误：无法从 Xcode 工程读取 MARKETING_VERSION，请显式传入版本号。" >&2
+    exit 1
+fi
+
 build_directory="$project_directory/build"
 derived_data_directory="$build_directory/ReleaseDerivedData"
 distribution_directory="$project_directory/dist"
