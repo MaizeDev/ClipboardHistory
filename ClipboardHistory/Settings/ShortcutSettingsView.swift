@@ -13,7 +13,7 @@ struct ShortcutSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SettingsSectionCard(title: "可以修改") {
+            SettingsSectionCard(title: "可以修改", icon: "command") {
                 ForEach(EditableClipboardShortcut.allCases) { shortcut in
                     ShortcutRecorderRow(shortcut: shortcut)
 
@@ -24,7 +24,7 @@ struct ShortcutSettingsView: View {
             }
             .id(resetVersion)
 
-            SettingsSectionCard(title: "浮窗基本操作") {
+            SettingsSectionCard(title: "浮窗基本操作", icon: "rectangle.on.rectangle") {
                 Grid(horizontalSpacing: 28, verticalSpacing: 10) {
                     GridRow {
                         ShortcutReferenceRow(title: "移动选择", keys: "↑ / ↓")
@@ -57,7 +57,5 @@ struct ShortcutSettingsView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
     }
 }
