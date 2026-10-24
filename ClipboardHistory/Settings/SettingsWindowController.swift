@@ -30,9 +30,9 @@ final class SettingsWindowController {
         window.title = "ClipboardHistory 偏好设置"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: 720, height: 600))
+        window.setContentSize(NSSize(width: 720, height: 560))
         window.center()
-        window.setFrameAutosaveName("ClipboardHistorySettingsWindowV2")
+        window.setFrameAutosaveName("ClipboardHistorySettingsWindow")
 
         windowController = NSWindowController(window: window)
     }
